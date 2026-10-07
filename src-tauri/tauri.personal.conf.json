@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "version": "0.9.8-snatvb.1",
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "signCommand": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": []
+    }
+  }
+}

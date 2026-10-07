@@ -144,6 +144,72 @@ sudo cp -a src-tauri/transcribe-libs/. /usr/lib/Handy/
 
 Resources only need re-copying if they change upstream (new icons, sounds, models, etc.).
 
+## Personal releases from this fork
+
+`main` follows `cjpais/Handy`. The `personal` branch contains the per-prompt
+shortcuts, shared correction dictionary, and personal release configuration.
+Merge upstream updates into `personal` to keep those features while receiving
+Handy's fixes. Published tags should never be moved or overwritten.
+
+The personal Windows workflow builds an x64 NSIS installer, checks its bundled
+runtime DLLs, starts the packaged application with `--list-devices`, and publishes
+the installer and SHA-256 checksum in this fork's Releases. It uses no upstream
+signing secrets. The installer supports normal and portable installation; it is
+unsigned, so Windows may show an unknown-publisher warning.
+
+The `personal-build` Cargo feature locks official update checks even when an
+existing profile has updates enabled. The personal config also removes updater
+endpoints and disables updater artifacts. Updates are installed manually from
+this fork's Releases so upstream binaries cannot replace the personal features.
+
+### Publish a new personal Windows release
+
+Set a new version in `src-tauri/tauri.personal.conf.json` and commit it on
+`personal`. Push a tag named `personal-v` followed by that exact version:
+
+```bash
+git switch personal
+# Update and commit tauri.personal.conf.json before tagging.
+git push origin personal
+git tag -a personal-v0.9.8-snatvb.1 -m "Personal Handy 0.9.8-snatvb.1"
+git push origin personal-v0.9.8-snatvb.1
+```
+
+The example is the first personal release; use a new version for subsequent
+releases. The workflow runs from the tag, so `main` can remain an upstream mirror.
+It validates the tag against the personal config and publishes only after the
+Windows package checks pass.
+
+### Bring in upstream updates
+
+```bash
+git fetch upstream
+git switch main
+git merge --ff-only upstream/main
+git push origin main
+git switch personal
+git merge main
+```
+
+Resolve conflicts while keeping the personal features, run the relevant checks,
+then choose a new personal version and release tag. For a stable release baseline,
+merge the corresponding official release tag instead of the development branch.
+If the checkout is shallow, fetch the missing history with
+`git fetch --unshallow upstream` before merging older tags.
+
+### Build a personal installer locally on Windows
+
+After installing the prerequisites listed above:
+
+```bash
+bun run build:personal --bundles nsis
+```
+
+The personal config overlays the platform config, retaining the Windows runtime
+DLL resources and installer template. On macOS, `bun run build:personal --bundles app`
+prepares a personal bundle; `bun run install:macos --install-only` then installs it
+with the existing local signing identity.
+
 ## Troubleshooting
 
 ### Repeated local macOS installs without repeated permission grants

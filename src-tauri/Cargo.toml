@@ -7,6 +7,9 @@ edition = "2021"
 license = "MIT"
 default-run = "handy"
 
+[features]
+personal-build = []
+
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
 

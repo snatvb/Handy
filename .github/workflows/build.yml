@@ -32,6 +32,10 @@ on:
         required: false
         type: boolean
         default: false
+      personal-build:
+        required: false
+        type: boolean
+        default: false
       repository:
         required: false
         type: string
@@ -872,9 +876,11 @@ jobs:
             Remove-Item -Recurse -Force $installDir
           }
 
+          # Personal releases intentionally ship NSIS only. Official builds
+          # must still supply both installer formats for this runtime audit.
           # Administrative install extracts the MSI payload without elevation.
           $msiPackages = Get-ChildItem (Join-Path $bundleBase "msi") -Filter "*.msi" -ErrorAction SilentlyContinue
-          if (-not $msiPackages) {
+          if (-not $msiPackages -and "${{ inputs.personal-build }}" -ne "true") {
             throw "No MSI packages found under $bundleBase for runtime DLL audit"
           }
 

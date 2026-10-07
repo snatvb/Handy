@@ -1375,13 +1375,16 @@ fn apply_settings_migrations(
     updated
 }
 
-/// Update checks are forced off (without touching the persisted setting) when
-/// `HANDY_DISABLE_UPDATER` is set — e.g. by the Nix package, since self-update
-/// can't work against an immutable /nix/store install.
+/// Update checks are forced off for personal builds and when
+/// `HANDY_DISABLE_UPDATER` is set, without changing the persisted preference.
+/// Personal builds must not replace their patches with an upstream binary;
+/// Nix builds cannot self-update an immutable /nix/store install.
 pub fn update_checks_forced_disabled() -> bool {
     use std::sync::OnceLock;
     static IS_UPDATER_DISABLED: OnceLock<bool> = OnceLock::new();
-    *IS_UPDATER_DISABLED.get_or_init(|| utils::env_flag_enabled("HANDY_DISABLE_UPDATER"))
+    *IS_UPDATER_DISABLED.get_or_init(|| {
+        cfg!(feature = "personal-build") || utils::env_flag_enabled("HANDY_DISABLE_UPDATER")
+    })
 }
 
 /// Effective updater state: the user's stored preference, overridden to `false`
@@ -1427,6 +1430,18 @@ pub fn get_recording_retention_period(app: &AppHandle) -> RecordingRetentionPeri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "personal-build")]
+    #[test]
+    fn personal_build_locks_updates_without_changing_stored_preference() {
+        let settings = AppSettings {
+            update_checks_enabled: true,
+            ..Default::default()
+        };
+        assert!(update_checks_forced_disabled());
+        assert!(!update_checks_effectively_enabled(&settings));
+        assert!(settings.update_checks_enabled);
+    }
 
     #[test]
     fn custom_words_legacy_store_migrates_once_without_losing_settings() {

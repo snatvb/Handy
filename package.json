@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:personal": "tauri build --features personal-build --no-sign --config src-tauri/tauri.personal.conf.json",
     "preview": "vite preview",
     "tauri": "tauri",
     "install:macos": "bash scripts/install-macos-local.sh",

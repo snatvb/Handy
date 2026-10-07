@@ -1,0 +1,107 @@
+name: Personal Windows Release
+
+on:
+  push:
+    tags:
+      - "personal-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.repository == 'snatvb/Handy'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config = json.loads(Path("src-tauri/tauri.personal.conf.json").read_text())
+          version = config["version"]
+          expected_tag = "personal-v" + version
+          if os.environ["GITHUB_REF_NAME"] != expected_tag:
+              raise SystemExit("Release tag must match personal config: " + expected_tag)
+          if config["bundle"]["createUpdaterArtifacts"]:
+              raise SystemExit("Personal releases must not produce official updater artifacts")
+          if config["plugins"]["updater"]["endpoints"]:
+              raise SystemExit("Personal releases must not use the official updater feed")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("version=" + version + "\n")
+          PY
+
+  windows:
+    needs: validate
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build.yml
+    with:
+      platform: windows-latest
+      target: x86_64-pc-windows-msvc
+      build-args: --bundles nsis --features personal-build --no-sign --config src-tauri/tauri.personal.conf.json
+      personal-build: true
+      sign-binaries: false
+      upload-artifacts: true
+      asset-prefix: handy-personal
+      ref: ${{ github.sha }}
+      no-cache: true
+
+  publish:
+    needs: [validate, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: handy-personal-x86_64-pc-windows-msvc
+          path: installers
+      - name: Prepare release assets and notes
+        env:
+          PERSONAL_VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t installers < <(find installers -type f -name '*.exe')
+          if [[ "${#installers[@]}" != 1 ]]; then
+            echo "Expected exactly one Windows NSIS installer" >&2
+            exit 1
+          fi
+          mkdir release-assets
+          cp "${installers[0]}" "release-assets/Handy_${PERSONAL_VERSION}_windows_x64_setup.exe"
+          (cd release-assets && sha256sum *.exe > SHA256SUMS.txt)
+          cat > release-notes.txt <<'NOTES'
+          Personal Handy build for Windows x64 (Intel/AMD).
+
+          - Per-prompt shortcuts with provider and model overrides.
+          - Shared preferred spellings and recognition variants, corrected locally before optional LLM processing.
+          - Official automatic updates are disabled to preserve the personal features.
+
+          Download the Windows setup executable. It supports normal and portable installation. This personal installer is not code-signed; Windows may show an unknown-publisher warning.
+          The installer has passed the runtime DLL audit and packaged-app startup check in CI.
+          NOTES
+      - name: Publish personal release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PERSONAL_VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --verify-tag --target "$GITHUB_SHA" \
+            --title "Handy ${PERSONAL_VERSION} — Windows x64" \
+            --notes-file release-notes.txt --draft --prerelease
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false
