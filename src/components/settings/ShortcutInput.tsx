@@ -16,6 +16,8 @@ interface ShortcutInputProps {
   unboundLabel?: string;
   /** Render just the hotkey control without the surrounding settings row. */
   inline?: boolean;
+  /** Extra classes for the fixed-size hotkey button (layout stability). */
+  buttonClassName?: string;
 }
 
 /**

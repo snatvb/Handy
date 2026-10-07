@@ -436,10 +436,8 @@
         "title": "Prompt Shortcuts",
         "rowDescription": "Record and transform the transcript with exactly this prompt.",
         "unbound": "Click to set",
-        "useGlobalProvider": "Global ({{label}})",
         "useGlobalModel": "Global model ({{model}})",
-        "noModelConfigured": "not configured",
-        "resetModel": "Reset model"
+        "noModelConfigured": "not configured"
       }
     },
     "history": {

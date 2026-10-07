@@ -182,7 +182,7 @@ const capitalizeKey = (key: string): string => {
 /**
  * Format a single key part for display.
  * Handles _left/_right suffixes and capitalizes names.
- * e.g. "shift_left" -> "Left Shift", "option" -> "Option", "space" -> "Space"
+ * e.g. "shift_left" -> "L Shift", "option" -> "Option", "space" -> "Space"
  */
 const formatKeyPart = (part: string): string => {
   const trimmed = part.trim();
@@ -190,11 +190,11 @@ const formatKeyPart = (part: string): string => {
 
   if (trimmed.endsWith("_left")) {
     const name = trimmed.slice(0, -5);
-    return `Left ${capitalizeKey(name)}`;
+    return `L ${capitalizeKey(name)}`;
   }
   if (trimmed.endsWith("_right")) {
     const name = trimmed.slice(0, -6);
-    return `Right ${capitalizeKey(name)}`;
+    return `R ${capitalizeKey(name)}`;
   }
 
   return capitalizeKey(trimmed);
@@ -203,7 +203,7 @@ const formatKeyPart = (part: string): string => {
 /**
  * Get display-friendly key combination string for the current OS
  * Formats raw hotkey strings like "option_left+shift+space" into
- * human-readable form like "Left Option + Shift + Space"
+ * human-readable form like "L Option + Shift + Space"
  */
 export const formatKeyCombination = (
   combination: string,

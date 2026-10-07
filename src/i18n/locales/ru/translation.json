@@ -428,7 +428,7 @@
         "model": {
           "title": "Модель",
           "descriptionCustom": "Укажите идентификатор модели, ожидаемый вашей пользовательской конечной точкой.",
-          "descriptionDefault": "Выберите модель, предоставляемую выбранным поставщиком.",
+          "descriptionDefault": "Модель по умолчанию для промптов без своей модели (используется и флагом --toggle-post-process).",
           "placeholderWithOptions": "Найдите или выберите модель",
           "placeholderNoOptions": "Введите название модели",
           "refreshModels": "Обновить модели"
@@ -458,11 +458,9 @@
       "shortcuts": {
         "title": "Хоткеи промптов",
         "rowDescription": "Записать речь и преобразовать текст именно этим промптом.",
-        "unbound": "Нажмите, чтобы назначить",
-        "useGlobalProvider": "Глобальный ({{label}})",
+        "unbound": "Назначить…",
         "useGlobalModel": "Глобальная модель ({{model}})",
-        "noModelConfigured": "не настроена",
-        "resetModel": "Сбросить модель"
+        "noModelConfigured": "не настроена"
       }
     },
     "history": {
