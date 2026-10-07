@@ -82,7 +82,7 @@ const PromptShortcutRow: React.FC<{ prompt: LLMPrompt }> = ({ prompt }) => {
       layout="stacked"
       grouped={true}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 justify-between">
         {!isAppleProvider && (
           <ModelSelect
             value={prompt.model ?? ""}
@@ -96,14 +96,14 @@ const PromptShortcutRow: React.FC<{ prompt: LLMPrompt }> = ({ prompt }) => {
             onSelect={(value) => void handleModelSelect(value)}
             onCreate={(value) => void handleModelSelect(value)}
             onBlur={() => {}}
-            className="w-56 shrink-0"
+            className="min-w-[200px] max-w-[420px]"
           />
         )}
         <ShortcutInput
           shortcutId={postProcessPromptBindingId(prompt.id)}
           inline
           unboundLabel={t("settings.postProcessing.shortcuts.unbound")}
-          buttonClassName="w-52"
+          buttonClassName="min-h-10 px-3 inline-flex items-center justify-center"
         />
       </div>
     </SettingContainer>
