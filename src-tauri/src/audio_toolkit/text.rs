@@ -1,19 +1,9 @@
+use crate::settings::CustomWord;
 use natural::phonetics::soundex;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use strsim::levenshtein;
-
-/// Builds an n-gram string by cleaning and concatenating words
-///
-/// Strips punctuation from each word, lowercases, and joins without spaces.
-/// This allows matching "Charge B" against "ChargeBee".
-fn build_ngram(words: &[&str]) -> String {
-    words
-        .iter()
-        .map(|w| build_match_key(w))
-        .collect::<Vec<_>>()
-        .concat()
-}
+use std::collections::BTreeMap;
+use strsim::damerau_levenshtein;
 
 fn build_match_key(word: &str) -> String {
     word.chars()
@@ -24,245 +14,299 @@ fn build_match_key(word: &str) -> String {
 
 struct CustomWordMatchKey {
     word_index: usize,
+    term_len: usize,
     key: String,
 }
 
-fn build_custom_word_match_keys(word: &str, word_index: usize) -> Vec<CustomWordMatchKey> {
-    let primary_key = build_match_key(word);
+fn build_custom_word_match_keys(
+    source: &str,
+    word_index: usize,
+    term_len: usize,
+) -> Vec<CustomWordMatchKey> {
+    // Do not erase meaningful symbols from C++ or C#. Their literal spelling
+    // and explicitly configured aliases still match.
+    if source
+        .chars()
+        .any(|c| !c.is_alphanumeric() && !c.is_whitespace() && !matches!(c, '&' | '-' | '.'))
+    {
+        return Vec::new();
+    }
+    let primary_key = build_match_key(source);
     let mut keys = Vec::with_capacity(2);
-
-    // The fallback matcher is intentionally limited to ASCII terms. Its
-    // whitespace tokenization and Soundex scoring are not suitable for CJK
-    // scripts. Unicode custom words remain available to models that accept
-    // them as native decode prompts; they are simply skipped by this fallback.
     if is_supported_fuzzy_key(&primary_key) {
         keys.push(CustomWordMatchKey {
             word_index,
+            term_len,
             key: primary_key.clone(),
         });
     }
-
-    if word.contains('&') {
-        let expanded_key = build_match_key(&word.replace('&', " and "));
+    if source.contains('&') {
+        let expanded_key = build_match_key(&source.replace('&', " and "));
         if is_supported_fuzzy_key(&expanded_key) && expanded_key != primary_key {
             keys.push(CustomWordMatchKey {
                 word_index,
+                term_len,
                 key: expanded_key,
             });
         }
     }
-
     keys
 }
 
 fn is_supported_fuzzy_key(key: &str) -> bool {
-    !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric())
+    // Exact replacements support every script; fuzzy matching is limited to
+    // Latin/ASCII and Cyrillic words with whitespace boundaries.
+    !key.is_empty()
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || ('\u{0400}'..='\u{052f}').contains(&c))
 }
 
 fn supports_soundex(key: &str) -> bool {
     !key.is_empty() && key.chars().all(|c| c.is_ascii_alphabetic())
 }
 
-/// Finds the best matching custom word for a candidate string
-///
-/// Uses Levenshtein distance and Soundex phonetic matching to find
-/// the best match above the given threshold.
-///
-/// # Arguments
-/// * `candidate` - The cleaned/lowercased candidate string to match
-/// * `custom_words` - Original custom words (for returning the replacement)
-/// * `custom_word_match_keys` - Normalized custom-word keys for comparison
-/// * `threshold` - Maximum similarity score to accept
-///
-/// # Returns
-/// The best matching custom word and its score, if any match was found
+/// Selects a unique nearby term, scoring all aliases of a term together.
 fn find_best_match<'a>(
     candidate: &str,
-    custom_words: &'a [String],
-    custom_word_match_keys: &[CustomWordMatchKey],
+    custom_words: &'a [CustomWord],
+    keys: &[CustomWordMatchKey],
     threshold: f64,
 ) -> Option<(&'a String, f64)> {
-    if !is_supported_fuzzy_key(candidate) || candidate.chars().count() > 50 {
+    let candidate_len = candidate.chars().count();
+    if !is_supported_fuzzy_key(candidate) || candidate_len > 50 {
         return None;
     }
-
-    let mut best_match: Option<&String> = None;
-    let mut best_score = f64::MAX;
-
-    for custom_word_key in custom_word_match_keys {
-        // Skip if lengths are too different (optimization + prevents over-matching)
-        // Use percentage-based check: max 25% length difference (prevents n-grams from
-        // matching significantly shorter custom words, e.g., "openaigpt" vs "openai")
-        let candidate_len = candidate.chars().count();
-        let custom_word_len = custom_word_key.key.chars().count();
-        let len_diff = candidate_len.abs_diff(custom_word_len) as f64;
-        let max_len = candidate_len.max(custom_word_len) as f64;
-        let max_allowed_diff = (max_len * 0.25).max(2.0); // At least 2 chars difference allowed
-        if len_diff > max_allowed_diff {
+    let mut scores = vec![f64::INFINITY; custom_words.len()];
+    for key in keys {
+        let word_index = key.word_index;
+        if candidate == key.key {
+            scores[word_index] = 0.0;
             continue;
         }
-
-        // Calculate Levenshtein distance (normalized by length)
-        let levenshtein_dist = levenshtein(candidate, &custom_word_key.key);
-        let levenshtein_score = if max_len > 0.0 {
-            levenshtein_dist as f64 / max_len
+        // Short terms/acronyms and numbers require an exact spelling or alias.
+        let key_len = key.key.chars().count();
+        if key.term_len < 5
+            || candidate_len < 4
+            || key_len < 5
+            || candidate.chars().any(|c| c.is_numeric())
+            || key.key.chars().any(|c| c.is_numeric())
+            || candidate_len.abs_diff(key_len) > 2
+        {
+            continue;
+        }
+        let distance = damerau_levenshtein(candidate, &key.key);
+        if distance > 2 || (candidate_len < 5 && distance > 1) {
+            continue;
+        }
+        let edit_score = distance as f64 / candidate_len.max(key_len) as f64;
+        // Keep the existing English pronunciation aid only for nearby
+        // spellings. Cyrillic uses edit distance without English Soundex.
+        let phonetic = edit_score <= 0.35
+            && supports_soundex(candidate)
+            && supports_soundex(&key.key)
+            && soundex(candidate, &key.key);
+        let score = if phonetic {
+            edit_score * 0.3
         } else {
-            1.0
+            edit_score
         };
-
-        // Soundex is an English/ASCII phonetic algorithm. Numeric terms can
-        // still use edit distance, but must not receive a phonetic boost.
-        let phonetic_match = supports_soundex(candidate)
-            && supports_soundex(&custom_word_key.key)
-            && soundex(candidate, &custom_word_key.key);
-
-        // Combine scores: favor phonetic matches, but also consider string similarity
-        let combined_score = if phonetic_match {
-            levenshtein_score * 0.3 // Give significant boost to phonetic matches
-        } else {
-            levenshtein_score
-        };
-
-        // Accept if the score is good enough (configurable threshold)
-        if combined_score < threshold && combined_score < best_score {
-            best_match = Some(&custom_words[custom_word_key.word_index]);
-            best_score = combined_score;
+        if score < threshold {
+            scores[word_index] = scores[word_index].min(score);
         }
     }
-
-    best_match.map(|m| (m, best_score))
+    let mut matches: Vec<_> = scores
+        .into_iter()
+        .enumerate()
+        .filter(|(_, score)| score.is_finite())
+        .collect();
+    matches.sort_by(|a, b| a.1.total_cmp(&b.1));
+    let &(word_index, score) = matches.first()?;
+    if let Some((_, next_score)) = matches.get(1) {
+        let ambiguous = if score == 0.0 {
+            *next_score == 0.0
+        } else {
+            *next_score - score < 0.05
+        };
+        if ambiguous {
+            return None;
+        }
+    }
+    Some((&custom_words[word_index].word, score))
 }
 
-/// Applies custom word corrections to transcribed text using fuzzy matching
-///
-/// This function corrects words in the input text by finding the best matches
-/// from a list of custom words using a combination of:
-/// - Levenshtein distance for string similarity
-/// - Soundex phonetic matching for pronunciation similarity
-/// - N-gram matching for multi-word speech artifacts (e.g., "Charge B" -> "ChargeBee")
-///
-/// # Arguments
-/// * `text` - The input text to correct
-/// * `custom_words` - List of custom words to match against
-/// * `threshold` - Maximum similarity score to accept (0.0 = exact match, 1.0 = any match)
-///
-/// # Returns
-/// The corrected text with custom words applied
-pub fn apply_custom_words(text: &str, custom_words: &[String], threshold: f64) -> String {
-    if custom_words.is_empty() {
-        return text.to_string();
-    }
+static DICTIONARY_WORD_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[\p{L}\p{M}\p{N}_]+").unwrap());
 
-    // Pre-compute normalized comparison keys to avoid repeated allocations.
-    let custom_word_match_keys: Vec<CustomWordMatchKey> = custom_words
-        .iter()
-        .enumerate()
-        .flat_map(|(index, word)| build_custom_word_match_keys(word, index))
-        .collect();
-
-    let words: Vec<&str> = text.split_whitespace().collect();
-    let mut result = Vec::new();
+fn apply_fuzzy_words(
+    text: &str,
+    custom_words: &[CustomWord],
+    keys: &[CustomWordMatchKey],
+    threshold: f64,
+    max_words: usize,
+) -> String {
+    let words: Vec<_> = DICTIONARY_WORD_PATTERN.find_iter(text).collect();
+    let mut result = String::with_capacity(text.len());
+    let mut cursor = 0;
     let mut i = 0;
-
     while i < words.len() {
         let mut best_match: Option<(usize, &String, f64)> = None;
-
-        // Consider n-grams up to three words and choose the closest match. A
-        // longest-first match can consume a following ordinary word when both
-        // candidates happen to share a Soundex code (for example,
-        // "Charge B, che" matching "ChargeBee").
-        for n in (1..=3).rev() {
-            if i + n > words.len() {
-                continue;
-            }
-
-            let ngram_words = &words[i..i + n];
-            // Do not consume across a punctuation boundary. In
-            // "Charge B, che", the comma closes the candidate at "B,".
-            if ngram_words[..n.saturating_sub(1)]
+        for n in (1..=max_words.min(words.len() - i)).rev() {
+            if words[i..i + n]
                 .iter()
-                .any(|word| !extract_punctuation(word).1.is_empty())
+                .any(|word| word.as_str().contains('_'))
             {
                 continue;
             }
-            let ngram = build_ngram(ngram_words);
-
+            // Never merge across punctuation or a paragraph boundary.
+            if (i..i + n - 1).any(|j| {
+                !text[words[j].end()..words[j + 1].start()]
+                    .chars()
+                    .all(|c| matches!(c, ' ' | '\t'))
+            }) {
+                continue;
+            }
+            let candidate = build_match_key(&text[words[i].start()..words[i + n - 1].end()]);
             if let Some((replacement, score)) =
-                find_best_match(&ngram, custom_words, &custom_word_match_keys, threshold)
+                find_best_match(&candidate, custom_words, keys, threshold)
             {
-                let is_better = best_match
-                    .as_ref()
-                    .is_none_or(|(_, _, best_score)| score < *best_score);
-                if is_better {
+                if best_match.as_ref().is_none_or(|(best_n, _, best_score)| {
+                    score < *best_score || (score == *best_score && score > 0.0 && n < *best_n)
+                }) {
                     best_match = Some((n, replacement, score));
                 }
             }
         }
-
-        if let Some((n, replacement, _)) = best_match {
-            let ngram_words = &words[i..i + n];
-            // Extract punctuation from first and last words of the n-gram.
-            let (prefix, _) = extract_punctuation(ngram_words[0]);
-            let (_, suffix) = extract_punctuation(ngram_words[n - 1]);
-
-            // Preserve case from first word.
-            let corrected = preserve_case_pattern(ngram_words[0], replacement);
-
-            result.push(format!("{}{}{}", prefix, corrected, suffix));
-            i += n;
+        result.push_str(&text[cursor..words[i].start()]);
+        let n = if let Some((n, replacement, _)) = best_match {
+            result.push_str(replacement);
+            n
         } else {
-            result.push(words[i].to_string());
-            i += 1;
-        }
+            result.push_str(words[i].as_str());
+            1
+        };
+        cursor = words[i + n - 1].end();
+        i += n;
     }
-
-    result.join(" ")
+    result.push_str(&text[cursor..]);
+    result
 }
 
-/// Preserves the case pattern of the original word when applying a replacement
-fn preserve_case_pattern(original: &str, replacement: &str) -> String {
-    if original.chars().all(|c| c.is_uppercase()) {
-        replacement.to_uppercase()
-    } else if original.chars().next().is_some_and(|c| c.is_uppercase()) {
-        let mut chars: Vec<char> = replacement.chars().collect();
-        if let Some(first_char) = chars.get_mut(0) {
-            *first_char = first_char.to_uppercase().next().unwrap_or(*first_char);
-        }
-        chars.into_iter().collect()
-    } else {
-        replacement.to_string()
-    }
+fn is_dictionary_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
 }
 
-/// Extracts punctuation prefix and suffix from a word
-fn extract_punctuation(word: &str) -> (&str, &str) {
-    // String slices use byte offsets. Derive both boundaries from char_indices
-    // so multibyte punctuation such as `。` and `「」` can never be split.
-    let prefix_end = word
-        .char_indices()
-        .find(|(_, c)| c.is_alphanumeric())
-        .map(|(index, _)| index)
-        .unwrap_or(word.len());
-    let suffix_start = word
-        .char_indices()
-        .rev()
-        .find(|(_, c)| c.is_alphanumeric())
-        .map(|(index, c)| index + c.len_utf8())
-        .unwrap_or(0);
-
-    let prefix = if prefix_end > 0 {
-        &word[..prefix_end]
-    } else {
-        ""
+/// Applies exact aliases first, then conservative fuzzy correction only to
+/// untouched spans. Works locally, independent of the model and LLM settings.
+/// The dictionary's spelling wins, including capitalization and symbols.
+pub fn apply_custom_words(text: &str, custom_words: &[CustomWord], threshold: f64) -> String {
+    // Canonical terms outrank aliases belonging to another term. Conflicting
+    // aliases are protected but left unchanged rather than resolved by order.
+    let mut exact_keys: BTreeMap<String, (Option<usize>, bool)> = BTreeMap::new();
+    let mut keys = Vec::new();
+    let mut max_words = 4;
+    for (index, entry) in custom_words.iter().enumerate() {
+        let term_len = build_match_key(&entry.word).chars().count();
+        for (alias_index, source) in std::iter::once(&entry.word)
+            .chain(&entry.aliases)
+            .enumerate()
+        {
+            let canonical = alias_index == 0;
+            let source = source
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase();
+            if source.is_empty() {
+                continue;
+            }
+            max_words = max_words.max(source.split_whitespace().count());
+            keys.extend(build_custom_word_match_keys(&source, index, term_len));
+            exact_keys
+                .entry(source)
+                .and_modify(|(target, is_canonical)| {
+                    if canonical && !*is_canonical {
+                        *target = Some(index);
+                        *is_canonical = true;
+                    } else if canonical == *is_canonical && *target != Some(index) {
+                        *target = None;
+                    }
+                })
+                .or_insert((Some(index), canonical));
+        }
+    }
+    if exact_keys.is_empty() {
+        return text.to_string();
+    }
+    // Longest literal phrase wins. Boundaries stay inside each alternative so
+    // a longer invalid prefix cannot hide a valid shorter whole-word match.
+    let mut exact_keys: Vec<_> = exact_keys.into_iter().collect();
+    exact_keys.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.0.cmp(&b.0)));
+    let alternatives: Vec<_> = exact_keys
+        .iter()
+        .map(|(source, _)| {
+            let start = source.chars().next().is_some_and(is_dictionary_word_char);
+            let end = source
+                .chars()
+                .next_back()
+                .is_some_and(is_dictionary_word_char);
+            let literal = source
+                .split(' ')
+                .map(regex::escape)
+                .collect::<Vec<_>>()
+                .join(r"[ \t]+");
+            format!(
+                "({}{}{})",
+                if start { r"\b" } else { "" },
+                literal,
+                if end { r"\b" } else { "" }
+            )
+        })
+        .collect();
+    let Ok(pattern) = Regex::new(&format!("(?i:{})", alternatives.join("|"))) else {
+        return text.to_string();
     };
-
-    let suffix = if suffix_start < word.len() {
-        &word[suffix_start..]
-    } else {
-        ""
-    };
-
-    (prefix, suffix)
+    let mut result = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for captures in pattern.captures_iter(text) {
+        let Some(found) = captures.get(0) else {
+            continue;
+        };
+        if text[..found.start()]
+            .chars()
+            .next_back()
+            .is_some_and(is_dictionary_word_char)
+            || text[found.end()..]
+                .chars()
+                .next()
+                .is_some_and(is_dictionary_word_char)
+        {
+            continue;
+        }
+        let Some(key_index) = captures.iter().skip(1).position(|group| group.is_some()) else {
+            continue;
+        };
+        result.push_str(&apply_fuzzy_words(
+            &text[cursor..found.start()],
+            custom_words,
+            &keys,
+            threshold,
+            max_words,
+        ));
+        match exact_keys[key_index].1 .0 {
+            Some(index) => result.push_str(&custom_words[index].word),
+            None => result.push_str(found.as_str()),
+        }
+        cursor = found.end();
+    }
+    result.push_str(&apply_fuzzy_words(
+        &text[cursor..],
+        custom_words,
+        &keys,
+        threshold,
+        max_words,
+    ));
+    result
 }
 
 /// Evidence for the language of the text being cleaned.
@@ -480,6 +524,116 @@ pub fn normalize_transcription_output(text: &str) -> String {
 mod tests {
     use super::*;
 
+    fn term(word: &str, aliases: &[&str]) -> CustomWord {
+        CustomWord {
+            word: word.to_string(),
+            aliases: aliases.iter().map(|alias| alias.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn custom_words_exact_aliases_work_without_fuzzy_correction() {
+        let words = vec![term("JSX", &["GSX", "джи эс икс", "джей эс икс"])];
+        assert_eq!(
+            apply_custom_words("Пишу GSX, «ДЖИ ЭС ИКС» и джей\tэс икс.", &words, 0.0),
+            "Пишу JSX, «JSX» и JSX."
+        );
+    }
+
+    #[test]
+    fn custom_words_match_whole_words_and_preserve_formatting() {
+        let words = vec![term("JSX", &["GSX"])];
+        let input = "  (GSX), GSX/GSX\nmy_GSX _GSX GSX2 XGSX GSXfoo  ";
+        assert_eq!(
+            apply_custom_words(input, &words, 0.18),
+            "  (JSX), JSX/JSX\nmy_GSX _GSX GSX2 XGSX GSXfoo  "
+        );
+    }
+
+    #[test]
+    fn custom_words_literal_symbols_are_not_regex_or_fuzzy_patterns() {
+        let words = vec![term("C++", &["си плюс плюс"]), CustomWord::new("Node.js")];
+        assert_eq!(
+            apply_custom_words(
+                "си плюс плюс, C++ и Node.js; C C# NodeXjs C++x",
+                &words,
+                0.0
+            ),
+            "C++, C++ и Node.js; C C# NodeXjs C++x"
+        );
+    }
+
+    #[test]
+    fn custom_words_exact_aliases_support_other_scripts() {
+        let words = vec![term("JSX", &["杰艾斯艾克斯"])];
+        assert_eq!(apply_custom_words("«杰艾斯艾克斯»", &words, 0.0), "«JSX»");
+    }
+
+    #[test]
+    fn custom_words_correct_cyrillic_alias_typos_and_transpositions() {
+        let words = vec![
+            term("TypeScript", &["тайпскрипт"]),
+            CustomWord::new("Постгрес"),
+        ];
+        assert_eq!(
+            apply_custom_words("тайпскрит и Постгрсе", &words, 0.18),
+            "TypeScript и Постгрес"
+        );
+    }
+
+    #[test]
+    fn custom_words_short_terms_and_numbers_require_exact_matches() {
+        let words = vec![
+            term("JSX", &["GSX", "джей эс икс"]),
+            CustomWord::new("GPT-4"),
+        ];
+        assert_eq!(
+            apply_custom_words("GSX TSX JSZ джей эс икз GPT4 GPT5", &words, 1.0),
+            "JSX TSX JSZ джей эс икз GPT-4 GPT5"
+        );
+    }
+
+    #[test]
+    fn custom_words_exact_replacements_do_not_cascade() {
+        let words = vec![term("JSX", &["GSX"]), term("TypeScript", &["JSX"])];
+        assert_eq!(apply_custom_words("GSX JSX", &words, 0.18), "JSX JSX");
+    }
+
+    #[test]
+    fn custom_words_ambiguous_aliases_and_fuzzy_matches_remain_unchanged() {
+        let mut words = vec![term("Cloud", &["облако"]), term("Clode", &["облако"])];
+        assert_eq!(
+            apply_custom_words("облако clod", &words, 0.18),
+            "облако clod"
+        );
+        words.reverse();
+        assert_eq!(
+            apply_custom_words("облако clod", &words, 0.18),
+            "облако clod"
+        );
+    }
+
+    #[test]
+    fn custom_words_aliases_of_same_term_are_not_ambiguous() {
+        let words = vec![term("Claude", &["claud", "cloud"])];
+        assert_eq!(apply_custom_words("clod", &words, 0.18), "Claude");
+    }
+
+    #[test]
+    fn custom_words_longest_valid_alias_wins_without_crossing_paragraphs() {
+        let words = vec![term("JSX", &["джей", "джей эс икс", "джей эс"])];
+        assert_eq!(
+            apply_custom_words("джей эс икс; джей эспрессо; джей\nэс икс", &words, 0.0),
+            "JSX; JSX эспрессо; JSX\nэс икс"
+        );
+    }
+
+    #[test]
+    fn custom_words_soundex_cannot_replace_distant_words() {
+        let words = vec![CustomWord::new("Superwhisper")];
+        assert_eq!(apply_custom_words("supervisor", &words, 1.0), "supervisor");
+    }
+
     /// Exercise the complete cleanup sequence with an explicitly selected
     /// language. Individual tests below predate the split between filler
     /// removal and non-filler normalization.
@@ -496,7 +650,7 @@ mod tests {
     #[test]
     fn test_apply_custom_words_exact_match() {
         let text = "hello world";
-        let custom_words = vec!["Hello".to_string(), "World".to_string()];
+        let custom_words = vec![CustomWord::new("Hello"), CustomWord::new("World")];
         let result = apply_custom_words(text, &custom_words, 0.5);
         assert_eq!(result, "Hello World");
     }
@@ -504,30 +658,9 @@ mod tests {
     #[test]
     fn test_apply_custom_words_fuzzy_match() {
         let text = "helo wrold";
-        let custom_words = vec!["hello".to_string(), "world".to_string()];
+        let custom_words = vec![CustomWord::new("hello"), CustomWord::new("world")];
         let result = apply_custom_words(text, &custom_words, 0.5);
         assert_eq!(result, "hello world");
-    }
-
-    #[test]
-    fn test_preserve_case_pattern() {
-        assert_eq!(preserve_case_pattern("HELLO", "world"), "WORLD");
-        assert_eq!(preserve_case_pattern("Hello", "world"), "World");
-        assert_eq!(preserve_case_pattern("hello", "WORLD"), "WORLD");
-    }
-
-    #[test]
-    fn test_extract_punctuation() {
-        assert_eq!(extract_punctuation("hello"), ("", ""));
-        assert_eq!(extract_punctuation("!hello?"), ("!", "?"));
-        assert_eq!(extract_punctuation("...hello..."), ("...", "..."));
-    }
-
-    #[test]
-    fn test_extract_punctuation_uses_unicode_boundaries() {
-        assert_eq!(extract_punctuation("你好。"), ("", "。"));
-        assert_eq!(extract_punctuation("「你好」"), ("「", "」"));
-        assert_eq!(extract_punctuation("你好！"), ("", "！"));
     }
 
     #[test]
@@ -723,6 +856,12 @@ mod tests {
     }
 
     #[test]
+    fn custom_words_do_not_expand_short_partial_terms_across_paragraphs() {
+        let words = vec![CustomWord::new("OpenAI")];
+        assert_eq!(apply_custom_words("Open\nAI", &words, 0.18), "Open\nAI");
+    }
+
+    #[test]
     fn test_filter_german_gated_fillers_require_evidence() {
         let text = "äh ich glaube ähm das passt";
 
@@ -788,7 +927,7 @@ mod tests {
     #[test]
     fn test_apply_custom_words_ngram_two_words() {
         let text = "il cui nome è Charge B, che permette";
-        let custom_words = vec!["ChargeBee".to_string()];
+        let custom_words = vec![CustomWord::new("ChargeBee")];
         let result = apply_custom_words(text, &custom_words, 0.5);
         assert!(result.contains("ChargeBee,"), "unexpected result: {result}");
         assert!(!result.contains("Charge B"));
@@ -797,7 +936,7 @@ mod tests {
     #[test]
     fn test_apply_custom_words_ngram_three_words() {
         let text = "use Chat G P T for this";
-        let custom_words = vec!["ChatGPT".to_string()];
+        let custom_words = vec![CustomWord::new("ChatGPT")];
         let result = apply_custom_words(text, &custom_words, 0.5);
         assert!(result.contains("ChatGPT"));
     }
@@ -805,24 +944,24 @@ mod tests {
     #[test]
     fn test_apply_custom_words_prefers_longer_ngram() {
         let text = "Open AI GPT model";
-        let custom_words = vec!["OpenAI".to_string(), "GPT".to_string()];
+        let custom_words = vec![CustomWord::new("OpenAI"), CustomWord::new("GPT")];
         let result = apply_custom_words(text, &custom_words, 0.5);
         assert_eq!(result, "OpenAI GPT model");
     }
 
     #[test]
-    fn test_apply_custom_words_ngram_preserves_case() {
+    fn test_apply_custom_words_ngram_uses_dictionary_case() {
         let text = "CHARGE B is great";
-        let custom_words = vec!["ChargeBee".to_string()];
+        let custom_words = vec![CustomWord::new("ChargeBee")];
         let result = apply_custom_words(text, &custom_words, 0.5);
-        assert!(result.contains("CHARGEBEE"));
+        assert_eq!(result, "ChargeBee is great");
     }
 
     #[test]
     fn test_apply_custom_words_ngram_with_spaces_in_custom() {
         // Custom word with space should also match against split words
         let text = "using Mac Book Pro";
-        let custom_words = vec!["MacBook Pro".to_string()];
+        let custom_words = vec![CustomWord::new("MacBook Pro")];
         let result = apply_custom_words(text, &custom_words, 0.5);
         assert_eq!(result, "using MacBook Pro");
     }
@@ -832,7 +971,7 @@ mod tests {
         // Verify that trailing non-alpha chars (like numbers) aren't double-counted
         // between build_ngram stripping them and extract_punctuation capturing them
         let text = "use GPT4 for this";
-        let custom_words = vec!["GPT-4".to_string()];
+        let custom_words = vec![CustomWord::new("GPT-4")];
         let result = apply_custom_words(text, &custom_words, 0.5);
         // Should NOT produce "GPT-44" (double-counting the trailing 4)
         assert!(
@@ -845,7 +984,7 @@ mod tests {
     #[test]
     fn test_apply_custom_words_matches_ampersand_word() {
         let text = "send it to RD for review";
-        let custom_words = vec!["R&D".to_string()];
+        let custom_words = vec![CustomWord::new("R&D")];
         let result = apply_custom_words(text, &custom_words, 0.18);
         assert_eq!(result, "send it to R&D for review");
     }
@@ -853,7 +992,7 @@ mod tests {
     #[test]
     fn test_apply_custom_words_matches_spoken_ampersand_word() {
         let text = "send it to R and D for review";
-        let custom_words = vec!["R&D".to_string()];
+        let custom_words = vec![CustomWord::new("R&D")];
         let result = apply_custom_words(text, &custom_words, 0.18);
         assert_eq!(result, "send it to R&D for review");
     }
@@ -861,7 +1000,7 @@ mod tests {
     #[test]
     fn test_apply_custom_words_preserves_ampersand_word() {
         let text = "send it to R&D for review";
-        let custom_words = vec!["R&D".to_string()];
+        let custom_words = vec![CustomWord::new("R&D")];
         let result = apply_custom_words(text, &custom_words, 0.18);
         assert_eq!(result, "send it to R&D for review");
     }
@@ -869,7 +1008,7 @@ mod tests {
     #[test]
     fn test_apply_custom_words_handles_unicode_punctuation() {
         let text = "「Handee。」";
-        let custom_words = vec!["Handy".to_string()];
+        let custom_words = vec![CustomWord::new("Handy")];
         let result = apply_custom_words(text, &custom_words, 0.5);
         assert_eq!(result, "「Handy。」");
     }
@@ -877,7 +1016,7 @@ mod tests {
     #[test]
     fn test_apply_custom_words_skips_cjk_fuzzy_matching() {
         let text = "你好。";
-        let custom_words = vec!["你号".to_string()];
+        let custom_words = vec![CustomWord::new("你号")];
         let result = apply_custom_words(text, &custom_words, 1.0);
         assert_eq!(result, text);
     }

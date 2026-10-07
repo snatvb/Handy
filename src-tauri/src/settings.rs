@@ -102,6 +102,48 @@ pub struct LLMPrompt {
     pub model: Option<String>,
 }
 
+/// A preferred spelling shared by transcription prompts and local correction.
+#[derive(Serialize, Debug, Clone, PartialEq, Eq, Type)]
+pub struct CustomWord {
+    pub word: String,
+    pub aliases: Vec<String>,
+}
+
+impl CustomWord {
+    /// Creates a preferred spelling with no recognition variants.
+    pub fn new(word: impl Into<String>) -> Self {
+        Self {
+            word: word.into(),
+            aliases: Vec::new(),
+        }
+    }
+}
+
+// Older stores and clients supply plain strings. Always serialize the richer
+// shape, while accepting both formats so existing dictionaries survive upgrades.
+impl<'de> Deserialize<'de> for CustomWord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StoredWord {
+            Legacy(String),
+            Entry {
+                word: String,
+                #[serde(default)]
+                aliases: Vec<String>,
+            },
+        }
+
+        Ok(match StoredWord::deserialize(deserializer)? {
+            StoredWord::Legacy(word) => Self::new(word),
+            StoredWord::Entry { word, aliases } => Self { word, aliases },
+        })
+    }
+}
+
 /// Binding-id prefix for per-prompt post-processing shortcuts. The remainder
 /// of the id is the prompt id: `post_process_prompt:<prompt_id>`.
 pub const POST_PROCESS_PROMPT_BINDING_PREFIX: &str = "post_process_prompt:";
@@ -467,7 +509,7 @@ pub struct AppSettings {
     #[serde(default = "default_log_level")]
     pub log_level: LogLevel,
     #[serde(default)]
-    pub custom_words: Vec<String>,
+    pub custom_words: Vec<CustomWord>,
     #[serde(default)]
     pub model_unload_timeout: ModelUnloadTimeout,
     #[serde(default = "default_word_correction_threshold")]
@@ -1067,6 +1109,15 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    /// Supplies preferred spellings, never misrecognitions, as decode hints.
+    pub fn custom_words_prompt(&self) -> String {
+        self.custom_words
+            .iter()
+            .map(|entry| entry.word.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     pub fn active_post_process_provider(&self) -> Option<&PostProcessProvider> {
         self.post_process_providers
             .iter()
@@ -1247,6 +1298,16 @@ fn apply_settings_migrations(
         updated = true;
     }
 
+    // Deserialization upgrades each legacy string without resetting any other
+    // setting. Persist the object form once, including an empty alias list.
+    if settings_value
+        .get("custom_words")
+        .and_then(|value| value.as_array())
+        .is_some_and(|words| words.iter().any(|word| word.is_string()))
+    {
+        updated = true;
+    }
+
     let stored_schema_version = settings_value
         .get("settings_schema_version")
         .and_then(|v| v.as_u64())
@@ -1366,6 +1427,59 @@ pub fn get_recording_retention_period(app: &AppHandle) -> RecordingRetentionPeri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_words_legacy_store_migrates_once_without_losing_settings() {
+        let mut stored = default_settings_json();
+        stored["custom_words"] = serde_json::json!(["JSX", "TypeScript"]);
+        stored["selected_language"] = serde_json::json!("ru");
+        let mut settings: AppSettings = serde_json::from_value(stored.clone()).unwrap();
+        assert_eq!(
+            settings.custom_words,
+            vec![CustomWord::new("JSX"), CustomWord::new("TypeScript")]
+        );
+        assert!(apply_settings_migrations(&mut settings, &stored));
+        let migrated = serde_json::to_value(&settings).unwrap();
+        assert_eq!(
+            migrated["custom_words"][0],
+            serde_json::json!({"word": "JSX", "aliases": []})
+        );
+        assert_eq!(migrated["selected_language"], "ru");
+        assert!(!apply_settings_migrations(&mut settings, &migrated));
+    }
+
+    #[test]
+    fn custom_words_mixed_legacy_and_alias_entries_round_trip() {
+        let words: Vec<CustomWord> = serde_json::from_value(serde_json::json!([
+            "React",
+            {"word": "JSX", "aliases": ["GSX", "джи эс икс"]},
+            {"word": "TypeScript"}
+        ]))
+        .unwrap();
+        assert!(words[0].aliases.is_empty());
+        assert_eq!(words[1].aliases, ["GSX", "джи эс икс"]);
+        assert!(words[2].aliases.is_empty());
+        assert_eq!(
+            serde_json::from_value::<Vec<CustomWord>>(serde_json::to_value(&words).unwrap())
+                .unwrap(),
+            words
+        );
+    }
+
+    #[test]
+    fn custom_words_prompt_excludes_misrecognitions() {
+        let settings = AppSettings {
+            custom_words: vec![
+                CustomWord {
+                    word: "JSX".to_string(),
+                    aliases: vec!["GSX".to_string(), "джи эс икс".to_string()],
+                },
+                CustomWord::new("TypeScript"),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(settings.custom_words_prompt(), "JSX, TypeScript");
+    }
 
     #[test]
     fn stored_binding_returns_the_requested_binding() {
@@ -1695,7 +1809,7 @@ mod tests {
         let salvaged = salvage_settings(&stored);
         assert_eq!(salvaged.paste_delay_ms, default_paste_delay_ms());
         assert_eq!(salvaged.sound_theme, default_sound_theme());
-        assert_eq!(salvaged.custom_words, vec!["handy".to_string()]);
+        assert_eq!(salvaged.custom_words, vec![CustomWord::new("handy")]);
     }
 
     #[test]

@@ -1003,7 +1003,15 @@ pub fn change_whats_new_last_seen_version_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn update_custom_words(app: AppHandle, words: Vec<String>) -> Result<(), String> {
+pub fn update_custom_words(app: AppHandle, words: Vec<settings::CustomWord>) -> Result<(), String> {
+    for entry in &words {
+        if std::iter::once(&entry.word)
+            .chain(&entry.aliases)
+            .any(|word| word.trim().is_empty() || word.chars().count() > 50)
+        {
+            return Err("Dictionary terms and variants must contain 1–50 characters".to_string());
+        }
+    }
     let mut settings = settings::get_settings(&app);
     settings.custom_words = words;
     settings::write_settings(&app, settings);

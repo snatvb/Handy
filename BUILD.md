@@ -146,6 +146,34 @@ Resources only need re-copying if they change upstream (new icons, sounds, model
 
 ## Troubleshooting
 
+### Repeated local macOS installs without repeated permission grants
+
+Use a persistent local signing certificate instead of the default ad-hoc
+signature. Set it up once:
+
+```bash
+bun run setup:macos-signing
+bun run install:macos --allow-signing-change
+```
+
+Setup creates **Handy Local Signing** in your login keychain, trusted only for
+code signing. Keep this identity: replacing its key or certificate changes the
+app's identity. The first transition from an ad-hoc build requires granting
+macOS permissions once more.
+
+For subsequent updates:
+
+```bash
+bun run install:macos
+```
+
+The installer verifies that the new app satisfies the installed app's designated
+requirement before replacing `/Applications/Handy.app`. It keeps the previous
+bundle only during replacement, restores it on failure, and deletes it on success.
+It does not reset privacy permissions.
+To prepare a bundle without installation, use `--build-only`; to install an
+already prepared bundle, use `--install-only`.
+
 ### macOS Accessibility remains enabled after a local rebuild
 
 Local builds use the ad-hoc `signingIdentity: "-"`. A rebuild can have a new macOS code

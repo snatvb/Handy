@@ -377,7 +377,18 @@
         "placeholder": "Add a word",
         "add": "Add",
         "remove": "Remove {{word}}",
-        "duplicate": "\"{{word}}\" already exists"
+        "duplicate": "\"{{word}}\" already exists",
+        "wordLabel": "Preferred spelling",
+        "aliasesLabel": "Recognition variants",
+        "aliasesPlaceholder": "GSX, джи эс икс, джей эс икс",
+        "aliasesHelp": "Variants are optional. Separate with commas.",
+        "tooLong": "Each term and variant must be at most 50 characters.",
+        "save": "Save",
+        "cancel": "Cancel",
+        "edit": "Edit {{word}}",
+        "noAliases": "No recognition variants",
+        "saveFailed": "Could not save the dictionary. Your edits have been kept; try again.",
+        "dictionaryDescription": "One dictionary for all transcription models. Preferred spellings guide supported models and correct transcripts locally, before optional AI processing. No AI processing is required. Nearby spellings are corrected automatically; short terms use exact matches."
       },
       "voiceActivityDetection": {
         "title": "Voice Activity Detection",

@@ -1086,12 +1086,11 @@ impl TranscriptionManager {
         };
 
         let settings = get_settings(&self.app_handle);
-        // Streaming models do not receive a decode prompt, so custom words
-        // always go through the shared fuzzy post-correction path.
+        // Every model uses the same local dictionary before optional LLM
+        // processing, including streaming and Whisper decode prompts.
         let filtered = post_process_transcription_text(
             finalized.text,
             &settings,
-            false,
             &finalized.output_language,
             &finalized.supported_languages,
         );
@@ -1204,18 +1203,10 @@ impl TranscriptionManager {
         );
         debug!("Output language evidence: {:?}", output_language);
 
-        // Apply fuzzy word correction if custom words are configured — UNLESS the
-        // words were already handed to the model as an initial prompt (whisper
-        // family). We don't pass a prompt to non-whisper models (it requires the
-        // whisper-kind run extension), so they still get fuzzy correction here,
-        // same as the ONNX engines.
-        let filtered_result = post_process_transcription_text(
-            run.text,
-            &settings,
-            run.model_is_whisper,
-            &output_language,
-            &run.languages,
-        );
+        // Decode hints improve recognition; local dictionary corrections also
+        // apply afterwards, independently of optional LLM post-processing.
+        let filtered_result =
+            post_process_transcription_text(run.text, &settings, &output_language, &run.languages);
 
         let et = std::time::Instant::now();
         let translation_note = if settings.translate_to_english {
@@ -1264,11 +1255,8 @@ impl TranscriptionManager {
         validated_language: &str,
         active_model: &str,
     ) -> Result<RunOutcome> {
-        // Whether the model advertises Feature::InitialPrompt. Informational
-        // (logged below); the whisper run extension and the fuzzy-correction
-        // skip are gated on `model_is_whisper` instead, since non-whisper
-        // archs can advertise the feature while rejecting the whisper-kind
-        // extension.
+        // Non-Whisper architectures can advertise prompts while rejecting
+        // the Whisper-specific extension, so attach it only to Whisper.
         let model_takes_initial_prompt = info.supports_initial_prompt;
         let model_is_whisper = info.arch == "whisper";
         let model_supports_translate = info.capabilities.supports_translate;
@@ -1283,14 +1271,13 @@ impl TranscriptionManager {
         );
 
         // Custom words become the initial prompt ONLY for models that accept
-        // one (whisper family). Attaching the whisper run extension to a
-        // non-whisper arch is rejected with INVALID_ARG, so skip it there and
-        // let the fuzzy post-correction handle custom words instead.
+        // one (whisper family). Other architectures reject the Whisper-specific
+        // extension. Local correction still applies to every final transcript.
         let family = if settings.custom_words.is_empty() || !model_is_whisper {
             None
         } else {
             Some(RunExtension::Whisper(WhisperRunOptions {
-                initial_prompt: Some(settings.custom_words.join(", ")),
+                initial_prompt: Some(settings.custom_words_prompt()),
                 ..Default::default()
             }))
         };
@@ -1338,7 +1325,6 @@ impl TranscriptionManager {
             // Whisper's audio-based LID (auto mode only; `None` when a
             // language hint was passed).
             model_detected_language: transcript.language,
-            model_is_whisper,
         })
     }
 
@@ -1503,7 +1489,6 @@ impl TranscriptionManager {
             applied_language_hint,
             output_was_translated,
             model_detected_language: None,
-            model_is_whisper: false,
         })
     }
 }
@@ -1518,12 +1503,6 @@ struct RunOutcome {
     output_was_translated: bool,
     /// The language the model itself detected, if it reported one.
     model_detected_language: Option<String>,
-    /// Whether the loaded model is actually whisper-family (arch string).
-    /// Non-whisper archs (e.g. Voxtral Small) can advertise
-    /// Feature::InitialPrompt yet reject the whisper-kind run extension with
-    /// INVALID_ARG, so the whisper extension must be gated on the arch, not
-    /// on the feature (see #1601).
-    model_is_whisper: bool,
 }
 
 fn emit_stream_text(app_handle: &AppHandle, committed: &str, tentative: &str) {
@@ -1759,7 +1738,6 @@ fn transcribe_cpp_run_plan(
 fn post_process_transcription_text(
     raw: String,
     settings: &AppSettings,
-    custom_words_already_prompted: bool,
     output_language: &OutputLanguageEvidence,
     supported_languages: &[String],
 ) -> String {
@@ -1799,7 +1777,7 @@ fn post_process_transcription_text(
             _ => raw,
         };
 
-        let corrected = if !settings.custom_words.is_empty() && !custom_words_already_prompted {
+        let corrected = if !settings.custom_words.is_empty() {
             apply_custom_words(
                 &raw,
                 &settings.custom_words,
@@ -2141,6 +2119,40 @@ pub fn get_available_accelerators(tm: &TranscriptionManager) -> AvailableAcceler
 mod tests {
     use super::*;
 
+    #[test]
+    fn custom_words_correct_final_transcripts_with_or_without_llm() {
+        for post_process_enabled in [false, true] {
+            for selected_model in ["whisper-large-v3-turbo", "parakeet-tdt-0.6b-v3"] {
+                let settings = AppSettings {
+                    selected_model: selected_model.to_string(),
+                    post_process_enabled,
+                    filler_word_removal_enabled: false,
+                    custom_words: vec![
+                        crate::settings::CustomWord {
+                            word: "JSX".to_string(),
+                            aliases: vec!["GSX".to_string(), "джи эс икс".to_string()],
+                        },
+                        crate::settings::CustomWord {
+                            word: "TypeScript".to_string(),
+                            aliases: vec!["тайпскрипт".to_string()],
+                        },
+                    ],
+                    ..Default::default()
+                };
+                assert_eq!(
+                    post_process_transcription_text(
+                        "GSX и джи эс икс, тайпскрит".to_string(),
+                        &settings,
+                        &OutputLanguageEvidence::UserSelected("ru".to_string()),
+                        &languages(&["ru", "en"]),
+                    ),
+                    "JSX и JSX, TypeScript",
+                    "model={selected_model}, llm={post_process_enabled}"
+                );
+            }
+        }
+    }
+
     fn languages(codes: &[&str]) -> Vec<String> {
         codes.iter().map(|code| (*code).to_string()).collect()
     }
@@ -2215,7 +2227,6 @@ mod tests {
             let result = post_process_transcription_text(
                 "学校に行きます".to_string(),
                 &settings,
-                false,
                 &evidence,
                 &languages(&["zh", "ja", "en"]),
             );
@@ -2234,7 +2245,6 @@ mod tests {
         let result = post_process_transcription_text(
             "我們今天下午一起去學校圖書館看書，然後再去吃晚飯。".to_string(),
             &settings,
-            false,
             &OutputLanguageEvidence::Unknown,
             &languages(&["zh", "en", "ja"]),
         );
@@ -2255,7 +2265,6 @@ mod tests {
         let result = post_process_transcription_text(
             "eu vi um carro".to_string(),
             &settings,
-            false,
             &evidence,
             &supported,
         );
@@ -2297,7 +2306,6 @@ mod tests {
         let result = post_process_transcription_text(
             "um uhm ok".to_string(),
             &settings,
-            false,
             &evidence,
             &languages(&["en", "pt"]),
         );
@@ -2317,7 +2325,6 @@ mod tests {
             "um so the weather forecast said it would probably rain throughout the whole weekend"
                 .to_string(),
             &settings,
-            false,
             &OutputLanguageEvidence::Unknown,
             &languages(&["en", "pt", "es", "de"]),
         );
@@ -2338,7 +2345,6 @@ mod tests {
         let result = post_process_transcription_text(
             "eu vi um carro na rua ontem de manhã quando fui ao mercado".to_string(),
             &settings,
-            false,
             &OutputLanguageEvidence::Unknown,
             &languages(&["en", "pt", "es", "de"]),
         );
@@ -2424,7 +2430,6 @@ mod tests {
         let result = post_process_transcription_text(
             "eu vi um carro".to_string(),
             &settings,
-            false,
             &evidence,
             &supported,
         );
