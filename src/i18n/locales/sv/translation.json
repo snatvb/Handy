@@ -175,10 +175,6 @@
           "cancel": {
             "name": "Kortkommando för att avbryta",
             "description": "Kortkommandot för att avbryta den aktuella inspelningen."
-          },
-          "transcribe_with_post_process": {
-            "name": "Snabbkommando för efterbearbetning",
-            "description": "Valfritt: En dedikerad snabbknapp som alltid tillämpar AI-efterbearbetning på din transkription."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Snabbkommando"
-      },
       "api": {
         "title": "API (OpenAI-kompatibelt)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Avbryt",
         "selectToEdit": "Välj en prompt ovan för att visa och redigera dess detaljer.",
         "createFirst": "Klicka på 'Skapa ny prompt' ovan för att skapa din första prompt för efterbearbetning."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

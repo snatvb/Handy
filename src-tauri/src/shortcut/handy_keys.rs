@@ -433,10 +433,6 @@ pub fn init_shortcuts(app: &AppHandle) -> Result<(), String> {
         if id == "cancel" {
             continue;
         }
-        // Skip post-processing shortcut when the feature is disabled
-        if id == "transcribe_with_post_process" && !user_settings.post_process_enabled {
-            continue;
-        }
 
         let binding = user_settings
             .bindings
@@ -448,6 +444,16 @@ pub fn init_shortcuts(app: &AppHandle) -> Result<(), String> {
             error!(
                 "Failed to register handy-keys shortcut {} during init: {}",
                 id, e
+            );
+        }
+    }
+
+    // Per-prompt post-processing shortcuts (bound and enabled only)
+    for binding in super::active_prompt_bindings(&user_settings) {
+        if let Err(e) = state.register(&binding) {
+            error!(
+                "Failed to register handy-keys prompt shortcut {} during init: {}",
+                binding.id, e
             );
         }
     }

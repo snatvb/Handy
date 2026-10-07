@@ -195,10 +195,6 @@
           "cancel": {
             "name": "キャンセルのショートカット",
             "description": "現在の録音をキャンセルするためのキーボードショートカット。"
-          },
-          "transcribe_with_post_process": {
-            "name": "後処理のショートカット",
-            "description": "文字起こしに常に AI 後処理を適用するキーボードショートカット。 (任意)"
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "ショートカット"
-      },
       "api": {
         "title": "API (OpenAI 互換)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "キャンセル",
         "selectToEdit": "上からプロンプトを選択して、詳細を表示・編集します。",
         "createFirst": "上の「新しいプロンプトを作成」をクリックして、最初の後処理プロンプトを作成してください。"
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

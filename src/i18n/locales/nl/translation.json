@@ -175,10 +175,6 @@
           "cancel": {
             "name": "Sneltoets voor annuleren",
             "description": "De sneltoets om de huidige opname te annuleren."
-          },
-          "transcribe_with_post_process": {
-            "name": "Sneltoets voor naverwerking",
-            "description": "Optioneel: Een specifieke sneltoets die altijd AI-naverwerking toepast op je transcriptie."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Sneltoets"
-      },
       "api": {
         "title": "API (OpenAI-compatibel)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Annuleren",
         "selectToEdit": "Selecteer hierboven een prompt om de details te bekijken en te bewerken.",
         "createFirst": "Klik hierboven op 'Nieuwe prompt maken' om je eerste naverwerkingsprompt aan te maken."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

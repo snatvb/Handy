@@ -175,10 +175,6 @@
           "cancel": {
             "name": "Pintasan Batal",
             "description": "Pintasan keyboard untuk membatalkan perekaman saat ini."
-          },
-          "transcribe_with_post_process": {
-            "name": "Pintasan Pascaproses",
-            "description": "Opsional: pintasan khusus yang selalu menerapkan pascaproses AI pada transkripsi Anda."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Pintasan"
-      },
       "api": {
         "title": "API (Kompatibel dengan OpenAI)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Batal",
         "selectToEdit": "Pilih prompt di atas untuk melihat dan mengedit detailnya.",
         "createFirst": "Klik 'Buat Prompt Baru' di atas untuk membuat prompt pascaproses pertama Anda."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

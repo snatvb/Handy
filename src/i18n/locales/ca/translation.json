@@ -175,10 +175,6 @@
           "cancel": {
             "name": "Drecera de cancel·lació",
             "description": "La drecera de teclat per cancel·lar l'enregistrament actual."
-          },
-          "transcribe_with_post_process": {
-            "name": "Drecera de postprocessament",
-            "description": "Opcional: una drecera específica que sempre aplica postprocessament amb IA a la transcripció."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Drecera de teclat"
-      },
       "api": {
         "title": "API (compatible amb OpenAI)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Cancel·leu",
         "selectToEdit": "Seleccioneu una indicació more amunt per veure'n i editar-ne els detalls.",
         "createFirst": "Feu clic a «Creeu una indicació nova» més amunt per crear la primera indicació de postprocessament."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

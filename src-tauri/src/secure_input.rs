@@ -480,7 +480,10 @@ mod imp {
                 if id == "cancel" && !state.cancel_requested.load(Ordering::SeqCst) {
                     continue;
                 }
-                if id == "transcribe_with_post_process" && !settings.post_process_enabled {
+                if binding.current_binding.trim().is_empty() {
+                    continue;
+                }
+                if settings::is_post_process_binding(id) && !settings.post_process_enabled {
                     continue;
                 }
 

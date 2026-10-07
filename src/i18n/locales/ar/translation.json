@@ -172,10 +172,6 @@
           "cancel": {
             "name": "اختصار الإلغاء",
             "description": ".اختصار لوحة المفاتيح لإلغاء التسجيل الحالي"
-          },
-          "transcribe_with_post_process": {
-            "name": "مفتاح المعالجة اللاحقة",
-            "description": "اختياري: مفتاح اختصار مخصص يطبق دائماً المعالجة اللاحقة بالذكاء الاصطناعي على التفريغ الصوتي."
           }
         },
         "errors": {
@@ -387,9 +383,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "مفتاح الاختصار"
-      },
       "api": {
         "title": "API (متوافق مع OpenAI)",
         "provider": {
@@ -438,6 +431,15 @@
         "cancel": "إلغاء",
         "selectToEdit": ".اختر مطالبة أعلاه لعرض وتعديل تفاصيلها",
         "createFirst": ".انقر على 'إنشاء مطالبة جديدة' أعلاه لإنشاء أول مطالبة معالجة لاحقة لك"
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

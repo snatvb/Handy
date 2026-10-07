@@ -8,6 +8,14 @@ interface ShortcutInputProps {
   grouped?: boolean;
   shortcutId: string;
   disabled?: boolean;
+  /** Override the container title instead of the binding's name. */
+  titleOverride?: string;
+  /** Override the container description instead of the binding's description. */
+  descriptionOverride?: string;
+  /** Label shown instead of the keys when the binding has no shortcut set. */
+  unboundLabel?: string;
+  /** Render just the hotkey control without the surrounding settings row. */
+  inline?: boolean;
 }
 
 /**

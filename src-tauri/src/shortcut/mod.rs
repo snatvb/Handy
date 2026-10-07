@@ -22,13 +22,38 @@ use tauri::{AppHandle, Emitter, Manager};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
-    self, get_settings, AutoSubmitKey, ChineseScript, ClipboardHandling, KeyboardImplementation,
-    LLMPrompt, OverlayPosition, OverlayStyle, PasteMethod, ShortcutActivation, ShortcutBinding,
-    SoundTheme, Theme, TypingTool, VadBackend, APPLE_INTELLIGENCE_PROVIDER_ID,
+    self, get_settings, is_post_process_binding, post_process_prompt_binding_id,
+    prompt_id_from_binding_id, AutoSubmitKey, ChineseScript, ClipboardHandling,
+    KeyboardImplementation, LLMPrompt, OverlayPosition, OverlayStyle, PasteMethod,
+    ShortcutActivation, ShortcutBinding, SoundTheme, Theme, TypingTool, VadBackend,
+    APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::tray;
 
 // Note: Commands are accessed via shortcut::handy_keys:: in lib.rs
+
+/// Bound (non-empty) per-prompt post-processing shortcut bindings, regardless
+/// of the enabled state — for unregister paths that must clear everything.
+fn bound_prompt_bindings(app_settings: &settings::AppSettings) -> Vec<ShortcutBinding> {
+    app_settings
+        .bindings
+        .values()
+        .filter(|binding| {
+            prompt_id_from_binding_id(&binding.id).is_some()
+                && !binding.current_binding.trim().is_empty()
+        })
+        .cloned()
+        .collect()
+}
+
+/// Per-prompt post-processing shortcut bindings that should be registered
+/// right now: bound (non-empty) and only while post-processing is enabled.
+pub fn active_prompt_bindings(app_settings: &settings::AppSettings) -> Vec<ShortcutBinding> {
+    if !app_settings.post_process_enabled {
+        return Vec::new();
+    }
+    bound_prompt_bindings(app_settings)
+}
 
 /// Initialize shortcuts using the configured implementation
 pub fn init_shortcuts(app: &AppHandle) {
@@ -165,8 +190,11 @@ pub fn change_binding(
     id: String,
     binding: String,
 ) -> Result<BindingResponse, String> {
-    // Reject empty bindings — every shortcut should have a value
-    if binding.trim().is_empty() {
+    let is_prompt_binding = prompt_id_from_binding_id(&id).is_some();
+
+    // Reject empty bindings — every shortcut should have a value. Prompt
+    // bindings are the exception: an empty value unbinds the prompt's hotkey.
+    if binding.trim().is_empty() && !is_prompt_binding {
         return Err("Binding cannot be empty".to_string());
     }
 
@@ -176,24 +204,46 @@ pub fn change_binding(
     let binding_to_modify = match settings.bindings.get(&id) {
         Some(binding) => binding.clone(),
         None => {
-            // Try to get the default binding for this id
-            let default_settings = settings::get_default_settings();
-            match default_settings.bindings.get(&id) {
-                Some(default_binding) => {
-                    warn!(
-                        "Binding '{}' not found in settings, creating from defaults",
-                        id
-                    );
-                    default_binding.clone()
+            // Per-prompt bindings live in the store only (not in defaults);
+            // create one on demand from its prompt.
+            if let Some(prompt_id) = prompt_id_from_binding_id(&id) {
+                match settings.post_process_prompt(prompt_id) {
+                    Some(prompt) => ShortcutBinding {
+                        id: id.clone(),
+                        name: prompt.name.clone(),
+                        description: "Record, transcribe, and post-process with this prompt."
+                            .to_string(),
+                        default_binding: String::new(),
+                        current_binding: String::new(),
+                    },
+                    None => {
+                        return Ok(BindingResponse {
+                            success: false,
+                            binding: None,
+                            error: Some(format!("Prompt '{}' not found", prompt_id)),
+                        });
+                    }
                 }
-                None => {
-                    let error_msg = format!("Binding with id '{}' not found in defaults", id);
-                    warn!("change_binding error: {}", error_msg);
-                    return Ok(BindingResponse {
-                        success: false,
-                        binding: None,
-                        error: Some(error_msg),
-                    });
+            } else {
+                // Try to get the default binding for this id
+                let default_settings = settings::get_default_settings();
+                match default_settings.bindings.get(&id) {
+                    Some(default_binding) => {
+                        warn!(
+                            "Binding '{}' not found in settings, creating from defaults",
+                            id
+                        );
+                        default_binding.clone()
+                    }
+                    None => {
+                        let error_msg = format!("Binding with id '{}' not found in defaults", id);
+                        warn!("change_binding error: {}", error_msg);
+                        return Ok(BindingResponse {
+                            success: false,
+                            binding: None,
+                            error: Some(error_msg),
+                        });
+                    }
                 }
             }
         }
@@ -215,17 +265,48 @@ pub fn change_binding(
         }
     }
 
+    // Unbinding a prompt binding: unregister its hotkey and persist an empty
+    // binding. Only reachable for prompt bindings (rejected above otherwise).
+    if binding.trim().is_empty() {
+        if !binding_to_modify.current_binding.trim().is_empty() {
+            if let Err(e) = unregister_shortcut(&app, binding_to_modify.clone()) {
+                debug!(
+                    "change_binding unbind: could not unregister '{}': {}",
+                    id, e
+                );
+            }
+        }
+        let mut unbound = binding_to_modify.clone();
+        unbound.current_binding = String::new();
+        settings.bindings.insert(id.clone(), unbound.clone());
+        settings::write_settings(&app, settings);
+        crate::secure_input::reconcile_fallback(&app);
+        return Ok(BindingResponse {
+            success: true,
+            binding: Some(unbound),
+            error: None,
+        });
+    }
+
+    // Post-processing shortcuts only fire while the feature is enabled; while
+    // disabled we persist the binding without registering it.
+    let should_register = !is_post_process_binding(&id) || settings.post_process_enabled;
+
     // Unregister the existing binding
-    if let Err(e) = unregister_shortcut(&app, binding_to_modify.clone()) {
-        let error_msg = format!("Failed to unregister shortcut: {}", e);
-        error!("change_binding error: {}", error_msg);
+    if should_register && !binding_to_modify.current_binding.trim().is_empty() {
+        if let Err(e) = unregister_shortcut(&app, binding_to_modify.clone()) {
+            let error_msg = format!("Failed to unregister shortcut: {}", e);
+            error!("change_binding error: {}", error_msg);
+        }
     }
 
     // Validate the new shortcut for the current keyboard implementation
     if let Err(e) = validate_shortcut_for_implementation(&binding, settings.keyboard_implementation)
     {
         warn!("change_binding validation error: {}", e);
-        restore_registration(&app, &binding_to_modify);
+        if should_register {
+            restore_registration(&app, &binding_to_modify);
+        }
         return Err(e);
     }
 
@@ -234,15 +315,17 @@ pub fn change_binding(
     updated_binding.current_binding = binding;
 
     // Register the new binding
-    if let Err(e) = register_shortcut(&app, updated_binding.clone()) {
-        let error_msg = format!("Failed to register shortcut: {}", e);
-        error!("change_binding error: {}", error_msg);
-        restore_registration(&app, &binding_to_modify);
-        return Ok(BindingResponse {
-            success: false,
-            binding: None,
-            error: Some(error_msg),
-        });
+    if should_register {
+        if let Err(e) = register_shortcut(&app, updated_binding.clone()) {
+            let error_msg = format!("Failed to register shortcut: {}", e);
+            error!("change_binding error: {}", error_msg);
+            restore_registration(&app, &binding_to_modify);
+            return Ok(BindingResponse {
+                success: false,
+                binding: None,
+                error: Some(error_msg),
+            });
+        }
     }
 
     // Update the binding in the settings
@@ -287,6 +370,10 @@ pub fn suspend_all_shortcuts(app: &AppHandle) {
         if id == "cancel" {
             continue;
         }
+        // Unbound prompt bindings have no hotkey to suspend
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
         if let Err(e) = unregister_shortcut(app, binding) {
             debug!(
                 "suspend_all_shortcuts: could not unregister '{}': {}",
@@ -305,7 +392,12 @@ pub fn resume_all_shortcuts(app: &AppHandle) {
         if id == "cancel" {
             continue;
         }
-        if id == "transcribe_with_post_process" && !settings.post_process_enabled {
+        // Unbound prompt bindings have no hotkey to re-register
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
+        // Post-processing shortcuts stay unregistered while the feature is off
+        if is_post_process_binding(id) && !settings.post_process_enabled {
             continue;
         }
         if let Err(e) = register_shortcut(app, binding.clone()) {
@@ -466,6 +558,10 @@ fn unregister_all_shortcuts(app: &AppHandle, implementation: KeyboardImplementat
         if id == "cancel" {
             continue;
         }
+        // Unbound prompt bindings were never registered
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
 
         let result = match implementation {
             KeyboardImplementation::Tauri => tauri_impl::unregister_shortcut(app, binding),
@@ -493,11 +589,6 @@ fn register_all_shortcuts_for_implementation(
     for (id, default_binding) in &default_bindings {
         // Skip cancel shortcut as it's dynamically registered
         if id == "cancel" {
-            continue;
-        }
-
-        // Skip post-processing shortcut when the feature is disabled
-        if id == "transcribe_with_post_process" && !current_settings.post_process_enabled {
             continue;
         }
 
@@ -534,6 +625,39 @@ fn register_all_shortcuts_for_implementation(
             error!(
                 "Failed to register shortcut '{}' for {:?}: {}",
                 id, implementation, e
+            );
+        }
+    }
+
+    // Per-prompt post-processing bindings live only in the store. Validate
+    // them for the new implementation (an invalid one is unbound rather than
+    // reset — prompts have no default hotkey) and register while enabled.
+    for mut binding in active_prompt_bindings(&current_settings) {
+        let binding_id = binding.id.clone();
+        if let Err(e) =
+            validate_shortcut_for_implementation(&binding.current_binding, implementation)
+        {
+            info!(
+                "Prompt shortcut '{}' ({}) is invalid for {:?}: {}. Unbinding.",
+                binding_id, binding.current_binding, implementation, e
+            );
+            binding.current_binding = String::new();
+            current_settings
+                .bindings
+                .insert(binding_id.clone(), binding);
+            reset_bindings.push(binding_id);
+            continue;
+        }
+
+        let result = match implementation {
+            KeyboardImplementation::Tauri => tauri_impl::register_shortcut(app, binding),
+            KeyboardImplementation::HandyKeys => handy_keys::register_shortcut(app, binding),
+        };
+
+        if let Err(e) = result {
+            error!(
+                "Failed to register shortcut '{}' for {:?}: {}",
+                binding_id, implementation, e
             );
         }
     }
@@ -1055,16 +1179,21 @@ pub fn change_post_process_enabled_setting(app: AppHandle, enabled: bool) -> Res
     settings.post_process_enabled = enabled;
     settings::write_settings(&app, settings.clone());
 
-    // Register or unregister the post-processing shortcut
-    if let Some(binding) = settings
-        .bindings
-        .get("transcribe_with_post_process")
-        .cloned()
-    {
+    // Register or unregister every bound prompt shortcut
+    for binding in bound_prompt_bindings(&settings) {
+        let binding_id = binding.id.clone();
         if enabled {
-            let _ = register_shortcut(&app, binding);
-        } else {
-            let _ = unregister_shortcut(&app, binding);
+            if let Err(e) = register_shortcut(&app, binding) {
+                debug!(
+                    "change_post_process_enabled_setting: could not register '{}': {}",
+                    binding_id, e
+                );
+            }
+        } else if let Err(e) = unregister_shortcut(&app, binding) {
+            debug!(
+                "change_post_process_enabled_setting: could not unregister '{}': {}",
+                binding_id, e
+            );
         }
     }
 
@@ -1179,9 +1308,13 @@ pub fn add_post_process_prompt(
         id: id.clone(),
         name,
         prompt,
+        provider_id: None,
+        model: None,
     };
 
     settings.post_process_prompts.push(new_prompt.clone());
+    // Creates the prompt's (initially unbound) shortcut binding entry
+    settings::ensure_prompt_bindings(&mut settings);
     settings::write_settings(&app, settings);
 
     Ok(new_prompt)
@@ -1204,6 +1337,8 @@ pub fn update_post_process_prompt(
     {
         existing_prompt.name = name;
         existing_prompt.prompt = prompt;
+        // Keeps the shortcut binding entry's name in sync with the rename
+        settings::ensure_prompt_bindings(&mut settings);
         settings::write_settings(&app, settings);
         Ok(())
     } else {
@@ -1234,6 +1369,67 @@ pub fn delete_post_process_prompt(app: AppHandle, id: String) -> Result<(), Stri
         settings.post_process_selected_prompt_id =
             settings.post_process_prompts.first().map(|p| p.id.clone());
     }
+
+    // Drop the prompt's shortcut binding entry and free its hotkey
+    let binding_id = post_process_prompt_binding_id(&id);
+    let removed_binding = settings.bindings.remove(&binding_id);
+
+    settings::write_settings(&app, settings);
+
+    if let Some(binding) = removed_binding {
+        if !binding.current_binding.trim().is_empty() {
+            let _ = unregister_shortcut(&app, binding);
+        }
+    }
+
+    Ok(())
+}
+
+/// Override the provider a specific prompt post-processes with. `None` falls
+/// back to the global post-processing provider.
+#[tauri::command]
+#[specta::specta]
+pub fn set_post_process_prompt_provider(
+    app: AppHandle,
+    prompt_id: String,
+    provider_id: Option<String>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    if let Some(id) = provider_id.as_deref() {
+        validate_provider_exists(&settings, id)?;
+    }
+
+    let prompt = settings
+        .post_process_prompts
+        .iter_mut()
+        .find(|p| p.id == prompt_id)
+        .ok_or_else(|| format!("Prompt with id '{}' not found", prompt_id))?;
+    prompt.provider_id = provider_id;
+
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+/// Override the model a specific prompt post-processes with. `None` falls
+/// back to the global model of the prompt's effective provider.
+#[tauri::command]
+#[specta::specta]
+pub fn set_post_process_prompt_model(
+    app: AppHandle,
+    prompt_id: String,
+    model: Option<String>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let model = model
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty());
+
+    let prompt = settings
+        .post_process_prompts
+        .iter_mut()
+        .find(|p| p.id == prompt_id)
+        .ok_or_else(|| format!("Prompt with id '{}' not found", prompt_id))?;
+    prompt.model = model;
 
     settings::write_settings(&app, settings);
     Ok(())

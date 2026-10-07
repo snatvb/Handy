@@ -1,4 +1,4 @@
-use crate::actions::ACTION_MAP;
+use crate::actions::action_for_binding;
 use crate::managers::audio::AudioRecordingManager;
 use crate::settings::ShortcutActivation;
 use log::{debug, error, warn};
@@ -535,7 +535,7 @@ pub struct TranscriptionCoordinator {
 }
 
 pub fn is_transcribe_binding(id: &str) -> bool {
-    id == "transcribe" || id == "transcribe_with_post_process"
+    id == "transcribe" || crate::settings::is_post_process_binding(id)
 }
 
 impl TranscriptionCoordinator {
@@ -687,8 +687,8 @@ fn run_effect(app: &AppHandle, state: &mut CoordinatorState, effect: Effect) {
 /// Execute a start effect; returns whether recording actually began, so the
 /// state machine can roll back its optimistic transition on failure.
 fn start(app: &AppHandle, binding_id: &str, hotkey_string: &str) -> bool {
-    let Some(action) = ACTION_MAP.get(binding_id) else {
-        warn!("No action in ACTION_MAP for '{binding_id}'");
+    let Some(action) = action_for_binding(binding_id) else {
+        warn!("No action for '{binding_id}'");
         return false;
     };
     action.start(app, binding_id, hotkey_string);
@@ -702,8 +702,8 @@ fn start(app: &AppHandle, binding_id: &str, hotkey_string: &str) -> bool {
 }
 
 fn stop(app: &AppHandle, binding_id: &str, hotkey_string: &str) {
-    let Some(action) = ACTION_MAP.get(binding_id) else {
-        warn!("No action in ACTION_MAP for '{binding_id}'");
+    let Some(action) = action_for_binding(binding_id) else {
+        warn!("No action for '{binding_id}'");
         return;
     };
     action.stop(app, binding_id, hotkey_string);
@@ -712,6 +712,14 @@ fn stop(app: &AppHandle, binding_id: &str, hotkey_string: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn per_prompt_post_process_bindings_are_transcribe_bindings() {
+        assert!(is_transcribe_binding("transcribe"));
+        assert!(is_transcribe_binding("transcribe_with_post_process"));
+        assert!(is_transcribe_binding("post_process_prompt:prompt_123"));
+        assert!(!is_transcribe_binding("cancel"));
+    }
 
     #[test]
     fn push_to_talk_release_while_recording_defers_release() {

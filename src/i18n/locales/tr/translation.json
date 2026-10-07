@@ -195,10 +195,6 @@
           "cancel": {
             "name": "İptal Kısayolu",
             "description": "Mevcut kaydı iptal etmek için klavye kısayolu."
-          },
-          "transcribe_with_post_process": {
-            "name": "Son İşlem Kısayolu",
-            "description": "İsteğe bağlı: Transkripsiyonunuza her zaman yapay zekâ ile son işlem uygulayan özel bir kısayol tuşu."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Kısayol Tuşu"
-      },
       "api": {
         "title": "API (OpenAI Uyumlu)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "İptal",
         "selectToEdit": "Ayrıntılarını görüntülemek ve düzenlemek için yukarıdan bir prompt seçin.",
         "createFirst": "İlk son işlem promptunuzu oluşturmak için yukarıdaki “Yeni Prompt Oluştur” seçeneğine tıklayın."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

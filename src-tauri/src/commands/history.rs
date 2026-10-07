@@ -93,8 +93,11 @@ pub async fn retry_history_entry_transcription(
         return Err("Recording contains no speech".to_string());
     }
 
+    // Retrying from history has no originating shortcut, so the globally
+    // selected prompt applies when post-processing was requested.
     let processed =
-        process_transcription_output(&app, &transcription, entry.post_process_requested).await;
+        process_transcription_output(&app, &transcription, entry.post_process_requested, None)
+            .await;
     history_manager
         .update_transcription(
             id,

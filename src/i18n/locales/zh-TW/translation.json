@@ -175,10 +175,6 @@
           "cancel": {
             "name": "取消快捷鍵",
             "description": "用於取消目前錄製的鍵盤快捷鍵"
-          },
-          "transcribe_with_post_process": {
-            "name": "後處理快捷鍵",
-            "description": "可選：專用快捷鍵，使用時一律對轉錄結果套用 AI 後處理"
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "快捷鍵"
-      },
       "api": {
         "title": "API（相容 OpenAI）",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "取消",
         "selectToEdit": "選擇上方的提示詞以檢視和編輯其詳細資訊",
         "createFirst": "點選上方的「建立新提示詞」來建立您的第一個後處理提示詞"
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

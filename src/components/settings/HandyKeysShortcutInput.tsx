@@ -16,6 +16,10 @@ interface HandyKeysShortcutInputProps {
   grouped?: boolean;
   shortcutId: string;
   disabled?: boolean;
+  titleOverride?: string;
+  descriptionOverride?: string;
+  unboundLabel?: string;
+  inline?: boolean;
 }
 
 interface HandyKeysEvent {
@@ -30,6 +34,10 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   grouped = false,
   shortcutId,
   disabled = false,
+  titleOverride,
+  descriptionOverride,
+  unboundLabel,
+  inline = false,
 }) => {
   const { t } = useTranslation();
   const { getSetting, updateBinding, resetBinding, isUpdating, isLoading } =
@@ -314,36 +322,48 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     binding.description,
   );
 
+  const displayBinding = binding.current_binding.trim()
+    ? formatKeyCombination(binding.current_binding, osType)
+    : (unboundLabel ?? "—");
+
+  const control = (
+    <div className="flex items-center space-x-1">
+      {isRecording ? (
+        <div
+          ref={shortcutRef}
+          className="px-2 py-1 text-sm font-semibold border border-logo-primary bg-logo-primary/30 rounded-md"
+        >
+          {formatCurrentKeys()}
+        </div>
+      ) : (
+        <div
+          className="px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded-md cursor-pointer hover:border-logo-primary"
+          onClick={startRecording}
+        >
+          {displayBinding}
+        </div>
+      )}
+      <ResetButton
+        onClick={() => resetBinding(shortcutId)}
+        disabled={isUpdating(`binding_${shortcutId}`)}
+      />
+    </div>
+  );
+
+  if (inline) {
+    return control;
+  }
+
   return (
     <SettingContainer
-      title={translatedName}
-      description={translatedDescription}
+      title={titleOverride ?? translatedName}
+      description={descriptionOverride ?? translatedDescription}
       descriptionMode={descriptionMode}
       grouped={grouped}
       disabled={disabled}
       layout="horizontal"
     >
-      <div className="flex items-center space-x-1">
-        {isRecording ? (
-          <div
-            ref={shortcutRef}
-            className="px-2 py-1 text-sm font-semibold border border-logo-primary bg-logo-primary/30 rounded-md"
-          >
-            {formatCurrentKeys()}
-          </div>
-        ) : (
-          <div
-            className="px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded-md cursor-pointer hover:border-logo-primary"
-            onClick={startRecording}
-          >
-            {formatKeyCombination(binding.current_binding, osType)}
-          </div>
-        )}
-        <ResetButton
-          onClick={() => resetBinding(shortcutId)}
-          disabled={isUpdating(`binding_${shortcutId}`)}
-        />
-      </div>
+      {control}
     </SettingContainer>
   );
 };

@@ -21,10 +21,6 @@ pub fn init_shortcuts(app: &AppHandle) {
         if id == "cancel" {
             continue; // Skip cancel shortcut, it will be registered dynamically
         }
-        // Skip post-processing shortcut when the feature is disabled
-        if id == "transcribe_with_post_process" && !user_settings.post_process_enabled {
-            continue;
-        }
         let binding = user_settings
             .bindings
             .get(&id)
@@ -33,6 +29,17 @@ pub fn init_shortcuts(app: &AppHandle) {
 
         if let Err(e) = register_shortcut(app, binding) {
             error!("Failed to register shortcut {} during init: {}", id, e);
+        }
+    }
+
+    // Per-prompt post-processing shortcuts (bound and enabled only)
+    for binding in super::active_prompt_bindings(&user_settings) {
+        let binding_id = binding.id.clone();
+        if let Err(e) = register_shortcut(app, binding) {
+            error!(
+                "Failed to register prompt shortcut {} during init: {}",
+                binding_id, e
+            );
         }
     }
 }

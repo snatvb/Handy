@@ -195,10 +195,6 @@
           "cancel": {
             "name": "Zkratka zrušení",
             "description": "Klávesová zkratka pro zrušení aktuálního nahrávání."
-          },
-          "transcribe_with_post_process": {
-            "name": "Klávesa pro následné zpracování",
-            "description": "Volitelné: Vyhrazená klávesová zkratka, která vždy použije AI následné zpracování na váš přepis."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Klávesová zkratka"
-      },
       "api": {
         "title": "API (kompatibilní s OpenAI)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Zrušit",
         "selectToEdit": "Vyberte výše prompt, abyste zobrazili a upravili jeho podrobnosti.",
         "createFirst": "Klikněte nahoře na 'Vytvořit nový prompt' a vytvořte svůj první prompt pro následné zpracování."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

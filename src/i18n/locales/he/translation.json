@@ -175,10 +175,6 @@
           "cancel": {
             "name": "קיצור מקשים לביטול",
             "description": "קיצור המקלדת לביטול ההקלטה הנוכחית."
-          },
-          "transcribe_with_post_process": {
-            "name": "קיצור לעיבוד משלים",
-            "description": "אופציונלי: קיצור מקשים ייעודי שתמיד מפעיל עיבוד AI על התמלול."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "קיצור מקשים"
-      },
       "api": {
         "title": "API (תואם OpenAI)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "ביטול",
         "selectToEdit": "בחר פרומפט למעלה כדי לצפות בפרטים שלו ולערוך אותם.",
         "createFirst": "לחץ על 'צור פרומפט חדש' למעלה כדי ליצור את פרומפט העיבוד הראשון שלך."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

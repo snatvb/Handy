@@ -175,10 +175,6 @@
           "cancel": {
             "name": "Бърз клавиш за отказ",
             "description": "Клавишната комбинация за отмяна на текущия запис."
-          },
-          "transcribe_with_post_process": {
-            "name": "Бърз клавиш за постобработка",
-            "description": "По избор: отделна комбинация, която винаги прилага ИИ постобработка върху транскрипцията."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Бърз клавиш"
-      },
       "api": {
         "title": "API (съвместим с OpenAI)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Отказ",
         "selectToEdit": "Изберете подкана по-горе, за да видите и редактирате подробностите ѝ.",
         "createFirst": "Натиснете „Нова подкана“ по-горе, за да създадете първата си подкана за постобработка."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

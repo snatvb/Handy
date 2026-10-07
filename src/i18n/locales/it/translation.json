@@ -195,10 +195,6 @@
           "cancel": {
             "name": "Scorciatoia Annulla",
             "description": "La scorciatoia da tastiera per annullare la registrazione in corso."
-          },
-          "transcribe_with_post_process": {
-            "name": "Tasto di post-elaborazione",
-            "description": "Facoltativo: Un tasto di scelta rapida dedicato che applica sempre la post-elaborazione IA alla trascrizione."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Tasto di scelta rapida"
-      },
       "api": {
         "title": "API (Compatibile con OpenAI)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Annulla",
         "selectToEdit": "Scegli un prompt qui sopra per visualizzare o modificare i dettagli.",
         "createFirst": "Clicca 'Crea un nuovo prompt' qui sopra per creare il tuo primo prompt di post-elaborazione."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

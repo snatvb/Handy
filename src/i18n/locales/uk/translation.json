@@ -175,10 +175,6 @@
           "cancel": {
             "name": "Гаряча клавіша скасування",
             "description": "Комбінація клавіш для скасування поточного запису."
-          },
-          "transcribe_with_post_process": {
-            "name": "Гаряча клавіша постобробки",
-            "description": "Необов'язково: Спеціальна гаряча клавіша, яка завжди застосовує AI-постобробку до вашої транскрипції."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Гаряча клавіша"
-      },
       "api": {
         "title": "API (сумісний з OpenAI)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Скасувати",
         "selectToEdit": "Оберіть промпт вище для перегляду та редагування його деталей.",
         "createFirst": "Натисніть «Створити новий промпт» вище, щоб створити ваш перший промпт постобробки."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

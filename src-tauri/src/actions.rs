@@ -118,25 +118,51 @@ fn should_use_streaming_overlay(style: OverlayStyle, is_streaming: bool) -> bool
     style == OverlayStyle::Live && is_streaming
 }
 
-async fn post_process_transcription(settings: &AppSettings, transcription: &str) -> Option<String> {
+async fn post_process_transcription(
+    settings: &AppSettings,
+    transcription: &str,
+    prompt: Option<&crate::settings::LLMPrompt>,
+) -> Option<String> {
     if is_blank_transcription(transcription) {
         debug!("Post-processing skipped because the transcription is empty");
         return None;
     }
 
-    let provider = match settings.active_post_process_provider().cloned() {
-        Some(provider) => provider,
+    let prompt = match prompt {
+        Some(prompt) => prompt,
+        None => {
+            debug!("Post-processing skipped because no prompt is selected");
+            return None;
+        }
+    };
+
+    // A prompt may override the provider; anything else falls back to the
+    // global post-processing provider.
+    let provider = match prompt
+        .provider_id
+        .as_deref()
+        .and_then(|id| settings.post_process_provider(id))
+        .or_else(|| settings.active_post_process_provider())
+    {
+        Some(provider) => provider.clone(),
         None => {
             debug!("Post-processing enabled but no provider is selected");
             return None;
         }
     };
 
-    let model = settings
-        .post_process_models
-        .get(&provider.id)
-        .cloned()
-        .unwrap_or_default();
+    let model = prompt
+        .model
+        .as_deref()
+        .filter(|model| !model.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            settings
+                .post_process_models
+                .get(&provider.id)
+                .cloned()
+                .unwrap_or_default()
+        });
 
     if model.trim().is_empty() {
         debug!(
@@ -146,28 +172,7 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         return None;
     }
 
-    let selected_prompt_id = match &settings.post_process_selected_prompt_id {
-        Some(id) => id.clone(),
-        None => {
-            debug!("Post-processing skipped because no prompt is selected");
-            return None;
-        }
-    };
-
-    let prompt = match settings
-        .post_process_prompts
-        .iter()
-        .find(|prompt| prompt.id == selected_prompt_id)
-    {
-        Some(prompt) => prompt.prompt.clone(),
-        None => {
-            debug!(
-                "Post-processing skipped because prompt '{}' was not found",
-                selected_prompt_id
-            );
-            return None;
-        }
-    };
+    let prompt = prompt.prompt.clone();
 
     if prompt.trim().is_empty() {
         debug!("Post-processing skipped because the selected prompt is empty");
@@ -354,6 +359,7 @@ pub(crate) async fn process_transcription_output(
     app: &AppHandle,
     transcription: &str,
     post_process: bool,
+    prompt_id: Option<&str>,
 ) -> ProcessedTranscription {
     let settings = get_settings(app);
     let mut final_text = transcription.to_string();
@@ -361,18 +367,32 @@ pub(crate) async fn process_transcription_output(
     let mut post_process_prompt: Option<String> = None;
 
     if post_process {
-        if let Some(processed_text) = post_process_transcription(&settings, &final_text).await {
-            post_processed_text = Some(processed_text.clone());
-            final_text = processed_text;
-
-            if let Some(prompt_id) = &settings.post_process_selected_prompt_id {
-                if let Some(prompt) = settings
-                    .post_process_prompts
-                    .iter()
-                    .find(|prompt| &prompt.id == prompt_id)
-                {
-                    post_process_prompt = Some(prompt.prompt.clone());
+        // An explicit prompt id (per-prompt shortcut) must resolve to its
+        // prompt; if the prompt was deleted, skip post-processing rather than
+        // silently running a different prompt's transformation. Without an
+        // explicit id, the globally selected prompt applies (CLI flag, legacy
+        // action).
+        let effective_prompt = match prompt_id {
+            Some(id) => match settings.post_process_prompt(id) {
+                Some(prompt) => Some(prompt),
+                None => {
+                    warn!("Post-processing skipped: prompt '{}' not found", id);
+                    None
                 }
+            },
+            None => settings
+                .post_process_selected_prompt_id
+                .as_deref()
+                .and_then(|id| settings.post_process_prompt(id)),
+        };
+
+        if let Some(prompt) = effective_prompt {
+            if let Some(processed_text) =
+                post_process_transcription(&settings, &final_text, Some(prompt)).await
+            {
+                post_processed_text = Some(processed_text.clone());
+                final_text = processed_text;
+                post_process_prompt = Some(prompt.prompt.clone());
             }
         }
     }
@@ -601,6 +621,9 @@ impl ShortcutAction for TranscribeAction {
 
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
         let post_process = self.post_process;
+        // Per-prompt shortcuts pin post-processing to their prompt; the prompt
+        // id travels in the binding id (`post_process_prompt:<id>`).
+        let prompt_id = crate::settings::prompt_id_from_binding_id(&binding_id).map(str::to_string);
         let cancel_generation = rm.cancel_generation();
 
         tauri::async_runtime::spawn(async move {
@@ -706,7 +729,12 @@ impl ShortcutAction for TranscribeAction {
                                 }
                             }
                             let Some(processed) = complete_unless_cancelled(
-                                process_transcription_output(&ah, &transcription, post_process),
+                                process_transcription_output(
+                                    &ah,
+                                    &transcription,
+                                    post_process,
+                                    prompt_id.as_deref(),
+                                ),
                                 || rm.was_cancelled_since(cancel_generation),
                             )
                             .await
@@ -865,6 +893,8 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
             post_process: false,
         }) as Arc<dyn ShortcutAction>,
     );
+    // No longer bound to a global shortcut, but still dispatched by the CLI
+    // flag (--toggle-post-process) and SIGUSR1 with the selected prompt.
     map.insert(
         "transcribe_with_post_process".to_string(),
         Arc::new(TranscribeAction { post_process: true }) as Arc<dyn ShortcutAction>,
@@ -879,6 +909,17 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     );
     map
 });
+
+/// Resolve the action for a binding id. Per-prompt post-processing bindings
+/// (`post_process_prompt:<prompt_id>`) have no static ACTION_MAP entry: they
+/// run the transcribe pipeline with post-processing pinned to that prompt
+/// (the prompt id is recovered from the binding id in `TranscribeAction::stop`).
+pub(crate) fn action_for_binding(binding_id: &str) -> Option<Arc<dyn ShortcutAction>> {
+    if crate::settings::prompt_id_from_binding_id(binding_id).is_some() {
+        return Some(Arc::new(TranscribeAction { post_process: true }));
+    }
+    ACTION_MAP.get(binding_id).cloned()
+}
 
 #[cfg(test)]
 mod tests {

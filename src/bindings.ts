@@ -304,6 +304,30 @@ async setPostProcessSelectedPrompt(id: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Override the provider a specific prompt post-processes with. `None` falls
+ * back to the global post-processing provider.
+ */
+async setPostProcessPromptProvider(promptId: string, providerId: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_post_process_prompt_provider", { promptId, providerId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Override the model a specific prompt post-processes with. `None` falls
+ * back to the global model of the prompt's effective provider.
+ */
+async setPostProcessPromptModel(promptId: string, model: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_post_process_prompt_model", { promptId, model }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateCustomWords(words: string[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_custom_words", { words }) };
@@ -1057,7 +1081,17 @@ export type KeyboardDiagnosticReport = { secure_input_enabled: boolean; culprit_
  */
 key_down: number; key_up: number; flags_changed: number; mouse: number; duration_ms: number }
 export type KeyboardImplementation = "tauri" | "handy_keys"
-export type LLMPrompt = { id: string; name: string; prompt: string }
+export type LLMPrompt = { id: string; name: string; prompt: string; 
+/**
+ * Provider override for this prompt. `None` uses the global
+ * post-processing provider.
+ */
+provider_id?: string | null; 
+/**
+ * Model override for this prompt. `None` uses the global model of the
+ * effective provider.
+ */
+model?: string | null }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; source: ModelSource; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; supports_language_selection: boolean; is_custom: boolean; supports_streaming: boolean; supports_language_detection: boolean }
 export type ModelLoadStatus = { is_loaded: boolean; current_model: string | null }

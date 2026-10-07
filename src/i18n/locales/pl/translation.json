@@ -195,10 +195,6 @@
           "cancel": {
             "name": "Skrót anulowania",
             "description": "Skrót klawiaturowy do anulowania bieżącego nagrywania."
-          },
-          "transcribe_with_post_process": {
-            "name": "Skrót postprocessingu",
-            "description": "Opcjonalnie: Dedykowany skrót klawiszowy, który zawsze stosuje postprocessing AI do transkrypcji."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Skrót klawiszowy"
-      },
       "api": {
         "title": "API (zgodne z OpenAI)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Anuluj",
         "selectToEdit": "Wybierz prompt powyżej, aby zobaczyć i edytować jego szczegóły.",
         "createFirst": "Kliknij 'Utwórz nowy prompt' powyżej, aby utworzyć pierwszy prompt postprocessingu."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

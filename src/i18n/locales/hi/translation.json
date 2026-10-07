@@ -175,10 +175,6 @@
           "cancel": {
             "name": "रद्द करने का शॉर्टकट",
             "description": "मौजूदा रिकॉर्डिंग रद्द करने के लिए कीबोर्ड शॉर्टकट."
-          },
-          "transcribe_with_post_process": {
-            "name": "पोस्ट-प्रोसेसिंग हॉटकी",
-            "description": "वैकल्पिक: एक अलग हॉटकी जो आपके ट्रांसक्रिप्शन पर हमेशा AI पोस्ट-प्रोसेसिंग लागू करती है."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "हॉटकी"
-      },
       "api": {
         "title": "API (OpenAI संगत)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "रद्द करें",
         "selectToEdit": "जानकारी देखने और बदलाव करने के लिए, ऊपर कोई प्रॉम्प्ट चुनें.",
         "createFirst": "अपना पहला पोस्ट-प्रोसेसिंग प्रॉम्प्ट बनाने के लिए, ऊपर 'नया प्रॉम्प्ट बनाएं' पर क्लिक करें."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

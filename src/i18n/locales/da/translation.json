@@ -175,10 +175,6 @@
           "cancel": {
             "name": "Annulleringsgenvej",
             "description": "Tastaturgenvejen til at annullere den aktuelle optagelse."
-          },
-          "transcribe_with_post_process": {
-            "name": "Genvej til efterbehandling",
-            "description": "Valgfrit: En dedikeret genvej, der altid anvender AI-efterbehandling på din transskription."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Genvejstast"
-      },
       "api": {
         "title": "API (OpenAI-kompatibel)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Annuller",
         "selectToEdit": "Vælg en prompt ovenfor for at se og redigere dens detaljer.",
         "createFirst": "Klik på 'Opret ny prompt' ovenfor for at oprette din første efterbehandlingsprompt."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

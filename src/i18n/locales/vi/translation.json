@@ -195,10 +195,6 @@
           "cancel": {
             "name": "Phím tắt hủy",
             "description": "Phím tắt để hủy bản ghi hiện tại."
-          },
-          "transcribe_with_post_process": {
-            "name": "Phím tắt xử lý sau",
-            "description": "Tùy chọn: Phím tắt chuyên dụng luôn áp dụng xử lý sau bằng AI cho bản chuyển đổi của bạn."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Phím tắt"
-      },
       "api": {
         "title": "API (Tương thích OpenAI)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Hủy",
         "selectToEdit": "Chọn một prompt ở trên để xem và chỉnh sửa chi tiết.",
         "createFirst": "Nhấn 'Tạo Prompt mới' ở trên để tạo prompt xử lý sau đầu tiên của bạn."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {

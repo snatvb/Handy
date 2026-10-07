@@ -195,10 +195,6 @@
           "cancel": {
             "name": "Raccourci d'Annulation",
             "description": "Le raccourci clavier pour annuler l'enregistrement en cours."
-          },
-          "transcribe_with_post_process": {
-            "name": "Raccourci de post-traitement",
-            "description": "Facultatif : Un raccourci dédié qui applique toujours le post-traitement IA à votre transcription."
           }
         },
         "errors": {
@@ -410,9 +406,6 @@
       }
     },
     "postProcessing": {
-      "hotkey": {
-        "title": "Raccourci clavier"
-      },
       "api": {
         "title": "API (Compatible OpenAI)",
         "provider": {
@@ -461,6 +454,15 @@
         "cancel": "Annuler",
         "selectToEdit": "Sélectionnez un prompt ci-dessus pour voir et modifier ses détails.",
         "createFirst": "Cliquez sur 'Créer un nouveau prompt' ci-dessus pour créer votre premier prompt de post-traitement."
+      },
+      "shortcuts": {
+        "title": "Prompt Shortcuts",
+        "rowDescription": "Record and transform the transcript with exactly this prompt.",
+        "unbound": "Click to set",
+        "useGlobalProvider": "Global ({{label}})",
+        "useGlobalModel": "Global model ({{model}})",
+        "noModelConfigured": "not configured",
+        "resetModel": "Reset model"
       }
     },
     "history": {
