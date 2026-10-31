@@ -136,7 +136,9 @@ product="$(product_name)"
 if [ "$skip_checks" -eq 0 ]; then
   printf 'Validating current tree...\n'
   bunx tsc --noEmit -p .
-  bun test
+  # Unit tests only: tests/ holds Playwright e2e specs that cannot run under
+  # bun test (they need the Playwright runner).
+  bun test src scripts
   (cd src-tauri && CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}" cargo test --quiet)
 fi
 
@@ -205,18 +207,33 @@ if [ "$build_windows" -eq 1 ]; then
   rustup target add x86_64-pc-windows-gnu
   win_conf="$staging/.tauri.personal.updater.conf.json"
   win_release_config "$win_conf"
+  # mingw-built ggml/libtranscribe DLLs import libstdc++/libgcc/libwinpthread;
+  # drop them into transcribe-cpp-sys's runtime dir (out/bin, published via
+  # cargo:runtime_dir) so build.rs stages everything into transcribe-libs and
+  # the NSIS bundle. The dir mtime bump also re-triggers build.rs staging.
+  mingw_root="$(cd "$(dirname "$(realpath "$(x86_64-w64-mingw32-gcc -print-file-name=libstdc++-6.dll)")")/.." && pwd)"
+  for bin_dir in src-tauri/target/x86_64-pc-windows-gnu/release/build/transcribe-cpp-sys-*/out/bin; do
+    [ -d "$bin_dir" ] || continue
+    cp "$mingw_root/lib/libstdc++-6.dll" "$mingw_root/lib/libgcc_s_seh-1.dll" "$bin_dir/"
+    cp "$mingw_root/bin/libwinpthread-1.dll" "$bin_dir/"
+  done
   # VULKAN_SDK points ggml's CMake at the cross SDK prefix (vulkan+spirv
   # headers, mingw vulkan-1 import lib, glslc, SPIRV-Headers config).
+  # No --no-sign here: it would also skip the updater artifact; Authenticode
+  # is already disabled via windows.signCommand=null in the personal config.
   VULKAN_SDK="$VULKAN_CROSS_SDK" \
     CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}" \
     bun run tauri build --target x86_64-pc-windows-gnu --bundles nsis \
-    --features personal-build --no-sign --config "$win_conf"
+    --features personal-build --config "$win_conf"
   collect x86_64-pc-windows-gnu/release/bundle/nsis "${product}_${new_version}_x64-setup.exe"
   rm -f "$win_conf"
-  # Updater artifacts (nsis.zip + .sig) only exist when the fork updater key
-  # was available at build time.
+  # Updater artifacts only exist when the fork updater key was available at
+  # build time. Tauri v2 updater signs the raw installer (.exe.sig); older
+  # wrapped .nsis.zip artifacts are picked up too if the bundler ever emits
+  # them again.
   if [ "$updater_ok" -eq 1 ]; then
-    for f in src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/*.nsis.zip \
+    for f in src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/*-setup.exe.sig \
+             src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/*.nsis.zip \
              src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/*.nsis.zip.sig; do
       [ -f "$f" ] || continue
       case "$f" in *"${new_version}"*) cp "$f" "$staging/" ;; esac
