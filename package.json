@@ -11,6 +11,8 @@
     "tauri": "tauri",
     "install:macos": "bash scripts/install-macos-local.sh",
     "setup:macos-signing": "bash scripts/install-macos-local.sh --setup-signing",
+    "release:build": "bash scripts/build-release.sh",
+    "release:publish": "bash scripts/publish-release.sh",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write . && cd src-tauri && cargo fmt",

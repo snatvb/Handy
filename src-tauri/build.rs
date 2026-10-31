@@ -1,6 +1,15 @@
 fn main() {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    build_apple_intelligence_bridge();
+    {
+        // The bridge and its link directives are for the macOS-aarch64 TARGET,
+        // not just host: cross-building Windows from an Apple Silicon Mac must
+        // not emit framework links into a mingw/MSVC binary.
+        if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos")
+            && std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64")
+        {
+            build_apple_intelligence_bridge();
+        }
+    }
 
     generate_tray_translations();
 

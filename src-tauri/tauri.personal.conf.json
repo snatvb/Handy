@@ -9,7 +9,10 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": []
+      "endpoints": [
+        "https://github.com/snatvb/Handy/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzMDU3OUU2NzVBMDZDREEKUldUYWJLQjE1bmtGc3hrTkxwREFydmpTU1hYUU9CN0w0M3p3LzZ1eXpzV3NmMGY2Mk5waUc4UW0K"
     }
   }
 }

@@ -136,34 +136,71 @@ shortcuts, shared correction dictionary, and personal release configuration.
 Merge upstream updates into `personal` to keep those features while receiving
 Handy's fixes. Published tags should never be moved or overwritten.
 
-The personal Windows workflow builds an x64 NSIS installer, checks its bundled
-runtime DLLs, starts the packaged application with `--list-devices`, and publishes
-the installer and SHA-256 checksum in this fork's Releases. It uses no upstream
-signing secrets. The installer supports normal and portable installation; it is
-unsigned, so Windows may show an unknown-publisher warning.
+Personal releases are built **locally on the Mac, without CI**: macOS arm64
+natively and Windows x64 cross-compiled with mingw-w64. `scripts/build-release.sh`
+stages the artifacts (dmg, NSIS setup, updater archives + signatures,
+SHA256SUMS) into `release/<version>/`; `scripts/publish-release.sh` commits the
+version bump, tags `personal-v<version>`, pushes, and creates the GitHub
+release with a `latest.json` updater manifest.
 
-The `personal-build` Cargo feature locks official update checks even when an
-existing profile has updates enabled. The personal config also removes updater
-endpoints and disables updater artifacts. Updates are installed manually from
-this fork's Releases so upstream binaries cannot replace the personal features.
+The macOS bundle is signed with the local signing identity (see
+`bun run setup:macos-signing`), so privacy grants survive self-updates on your
+own machines. Friends get a Gatekeeper hint in the release notes instead. The
+Windows installer is unsigned; Windows may show an unknown-publisher warning.
 
-### Publish a new personal Windows release
+The in-app updater is served **from this fork only**: personal binaries embed
+the fork's updater public key and endpoint, so official upstream artifacts fail
+signature verification and can never replace the personal features.
+`HANDY_DISABLE_UPDATER=1` still forces update checks off.
 
-Set a new version in `src-tauri/tauri.personal.conf.json` and commit it on
-`personal`. Push a tag named `personal-v` followed by that exact version:
+### One-time setup
 
 ```bash
-git switch personal
-# Update and commit tauri.personal.conf.json before tagging.
-git push origin personal
-git tag -a personal-v0.9.8-snatvb.1 -m "Personal Handy 0.9.8-snatvb.1"
-git push origin personal-v0.9.8-snatvb.1
+# Updater keypair (keep the private key; losing it kills self-updates)
+bunx tauri signer generate -w ~/.tauri/handy-updater.key -p ""
+
+# Windows cross-build toolchain
+brew install mingw-w64 shaderc vulkan-headers spirv-headers
+rustup target add x86_64-pc-windows-gnu
+
+# mingw import library for vulkan-1.dll + SPIRV-Headers CMake config
+mkdir -p ~/cross/vulkan-mingw
+curl -sL -o ~/cross/vulkan-mingw/vulkan-1.def \
+  https://raw.githubusercontent.com/KhronosGroup/Vulkan-Loader/main/loader/vulkan-1.def
+x86_64-w64-mingw32-dlltool --input ~/cross/vulkan-mingw/vulkan-1.def \
+  --output-lib ~/cross/vulkan-mingw/libvulkan-1.a
+git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers ~/cross/SPIRV-Headers
+cmake -S ~/cross/SPIRV-Headers -B ~/cross/SPIRV-Headers/build \
+  -DCMAKE_INSTALL_PREFIX=~/cross/spirv-headers
+cmake --install ~/cross/SPIRV-Headers/build
+
+# A VULKAN_SDK-style prefix so ggml's CMake finds vulkan+spirv headers, the
+# import library, glslc, and the SPIRV-Headers config in one place.
+SDK=~/cross/vulkan-mingw/sdk
+mkdir -p "$SDK"/include "$SDK"/lib "$SDK"/bin
+ln -sfn "$(brew --prefix vulkan-headers)/include/vulkan" "$SDK/include/vulkan"
+ln -sfn "$(brew --prefix vulkan-headers)/include/vk_video" "$SDK/include/vk_video"
+ln -sfn ~/cross/spirv-headers/include/spirv "$SDK/include/spirv"
+mkdir -p "$SDK/share"
+ln -sfn ~/cross/spirv-headers/share/cmake/SPIRV-Headers "$SDK/share/SPIRV-Headers"
+ln -sfn ~/cross/vulkan-mingw/libvulkan-1.a "$SDK/lib/libvulkan-1.a"
+ln -sfn "$(command -v glslc)" "$SDK/bin/glslc"
 ```
 
-The example is the first personal release; use a new version for subsequent
-releases. The workflow runs from the tag, so `main` can remain an upstream mirror.
-It validates the tag against the personal config and publishes only after the
-Windows package checks pass.
+### Publish a new personal release
+
+```bash
+bun run release:build -- --bump-personal   # or --version 0.9.9-snatvb.1
+# test the artifacts in release/<version>/
+bun run release:publish
+```
+
+`--bump-personal` increments the trailing `N` in `X.Y.Z-snatvb.N`; the
+`X.Y.Z` base is bumped by hand (explicit `--version`) after an upstream merge.
+The build script validates the tree first (`tsc`, `bun test`, `cargo test`),
+reverts its version bump if anything fails, and signs updater artifacts with
+`~/.tauri/handy-updater.key`. Publish refuses to run when the tag already
+exists or the worktree is dirty beyond the version bump.
 
 ### Bring in upstream updates
 
@@ -177,23 +214,17 @@ git merge main
 ```
 
 Resolve conflicts while keeping the personal features, run the relevant checks,
-then choose a new personal version and release tag. For a stable release baseline,
-merge the corresponding official release tag instead of the development branch.
-If the checkout is shallow, fetch the missing history with
-`git fetch --unshallow upstream` before merging older tags.
+then release with an explicit `--version` that moves the `X.Y.Z` base. For a
+stable release baseline, merge the corresponding official release tag instead
+of the development branch. If the checkout is shallow, fetch the missing
+history with `git fetch --unshallow upstream` before merging older tags.
 
-### Build a personal installer locally on Windows
+### Local dev installs
 
-After installing the prerequisites listed above:
-
-```bash
-bun run build:personal --bundles nsis
-```
-
-The personal config overlays the platform config, retaining the Windows runtime
-DLL resources and installer template. On macOS, `bun run build:personal --bundles app`
-prepares a personal bundle; `bun run install:macos --install-only` then installs it
-with the existing local signing identity.
+`bun run install:macos` still builds, signs, and installs the running checkout
+for development. The release updater tarball is built from the same locally
+signed bundle, so switching between dev installs and release self-updates does
+not reset macOS privacy grants.
 
 ## Troubleshooting
 

@@ -65,7 +65,7 @@ it to Handy.
 - Pre-build checks (skipped with `--skip-checks`): `bunx tsc --noEmit`,
   `bun test`, `cd src-tauri && cargo test`.
 - macOS (aarch64): `bun run tauri build --bundles app,dmg --features
-  personal-build --config src-tauri/tauri.personal.conf.json`, then:
+personal-build --config src-tauri/tauri.personal.conf.json`, then:
   - collect `Handy_<v>_aarch64.dmg`;
   - sign `.app` with the existing "Handy Local Signing" identity (same
     entitlements as `install-macos-local.sh`) **before** tarballing, so the
@@ -75,8 +75,8 @@ it to Handy.
     `bunx tauri signer sign` using the fork updater key.
 - Windows (x64): `rustup target add x86_64-pc-windows-gnu` (already installed),
   `bun run tauri build --target x86_64-pc-windows-gnu --bundles nsis --features
-  personal-build --no-sign --config <personal conf overlaid with
-  createUpdaterArtifacts:true>`; collect setup `.exe` + `.nsis.zip` + `.sig`.
+personal-build --no-sign --config <personal conf overlaid with
+createUpdaterArtifacts:true>`; collect setup `.exe` + `.nsis.zip` + `.sig`.
   Requires `x86_64-w64-mingw32-gcc` (present: GCC 14.2.0) and `makensis`
   (present).
 - Updater key: `~/.tauri/handy-updater.key`, generated once via
@@ -99,7 +99,7 @@ it to Handy.
   - `update_checks_forced_disabled()` drops the `personal-build` clause;
     keeps `HANDY_DISABLE_UPDATER` (Nix/CI escape hatch).
   - Update the `personal_build_locks_updates_without_changing_stored_preference`
-    test to assert updates are *enabled* under `personal-build` and still
+    test to assert updates are _enabled_ under `personal-build` and still
     forced off under the env var.
 - Protection invariant: personal binaries embed the fork pubkey, so any
   upstream-signed `latest.json`/artifact fails signature verification even if
@@ -171,7 +171,7 @@ build-release.sh          publish-release.sh
 ## Testing
 
 1. Spike (first implementation step): `cargo check --target
-   x86_64-pc-windows-gnu` in `src-tauri` — validates transcribe-cpp-sys /
+x86_64-pc-windows-gnu` in `src-tauri` — validates transcribe-cpp-sys /
    handy-recorder / cpal compile under mingw before any script work.
 2. Unit: settings.rs updater tests updated; `bun test` suite; `cargo test`.
 3. Script smoke: `build-release.sh --only mac --no-bump --skip-checks` on a
@@ -182,13 +182,13 @@ build-release.sh          publish-release.sh
 
 ## Risks
 
-| Risk | Mitigation |
-|---|---|
-| transcribe-cpp-sys / Vulkan / cpal fail on mingw | Spike first; fallback cargo-xwin (MSVC cross); last resort keep CI for Windows only |
-| NSIS bundling quirks cross-host (resources, webview2 download) | Tauri supports NSIS cross-build; delta-review proves the path on this machine |
-| Updater replaces local-signed Mac app correctly | Tarball signed after codesign; step 5 of testing verifies |
-| `latest.json` "latest" pointer moves off old releases | Fork has only personal releases; fine. Documented. |
-| First self-update from CI-era Windows build (0.9.8-snatvb.1) | Old build has updater disabled — one manual install of `.2`, then self-update onward |
+| Risk                                                           | Mitigation                                                                           |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| transcribe-cpp-sys / Vulkan / cpal fail on mingw               | Spike first; fallback cargo-xwin (MSVC cross); last resort keep CI for Windows only  |
+| NSIS bundling quirks cross-host (resources, webview2 download) | Tauri supports NSIS cross-build; delta-review proves the path on this machine        |
+| Updater replaces local-signed Mac app correctly                | Tarball signed after codesign; step 5 of testing verifies                            |
+| `latest.json` "latest" pointer moves off old releases          | Fork has only personal releases; fine. Documented.                                   |
+| First self-update from CI-era Windows build (0.9.8-snatvb.1)   | Old build has updater disabled — one manual install of `.2`, then self-update onward |
 
 ## Migration
 
