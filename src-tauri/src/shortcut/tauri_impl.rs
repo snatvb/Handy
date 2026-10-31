@@ -27,6 +27,10 @@ pub fn init_shortcuts(app: &AppHandle) {
             .cloned()
             .unwrap_or(default_binding);
 
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
+
         if let Err(e) = register_shortcut(app, binding) {
             error!("Failed to register shortcut {} during init: {}", id, e);
         }
@@ -159,6 +163,12 @@ pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<
             return Err(error_msg);
         }
     };
+
+    // Capture suspends shortcuts before editing; removing an absent shortcut
+    // is a successful no-op, including repeated removal of legacy duplicates.
+    if !app.global_shortcut().is_registered(shortcut) {
+        return Ok(());
+    }
 
     app.global_shortcut().unregister(shortcut).map_err(|e| {
         let error_msg = format!(

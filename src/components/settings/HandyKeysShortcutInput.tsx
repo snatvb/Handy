@@ -47,9 +47,9 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     useSettings();
   const [isRecording, setIsRecording] = useState(false);
   const [currentKeys, setCurrentKeys] = useState<string>("");
-  const [originalBinding, setOriginalBinding] = useState<string>("");
   const shortcutRef = useRef<HTMLDivElement | null>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
+  const committingRef = useRef(false);
   // Use a ref to track currentKeys for the event handler (avoids stale closure)
   const currentKeysRef = useRef<string>("");
   // Track keyed vs modifier-only captures separately so a combo commits only
@@ -76,23 +76,12 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     // Stop backend recording
     await commands.stopHandyKeysRecording().catch(console.error);
 
-    // Restore original binding
-    if (originalBinding) {
-      try {
-        await updateBinding(shortcutId, originalBinding);
-      } catch (error) {
-        console.error("Failed to restore original binding:", error);
-        toast.error(t("settings.general.shortcut.errors.restore"));
-      }
-    }
-
     setIsRecording(false);
     setCurrentKeys("");
     currentKeysRef.current = "";
     keyedShortcutRef.current = "";
     modifierOnlyShortcutRef.current = "";
-    setOriginalBinding("");
-  }, [isRecording, originalBinding, shortcutId, updateBinding, t]);
+  }, [isRecording]);
 
   // Set up event listener for handy-keys events
   useEffect(() => {
@@ -103,28 +92,9 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     const setupListener = async () => {
       // Listen for key events from backend
       const commitAndStop = async (keysToCommit: string) => {
-        try {
-          await updateBinding(shortcutId, keysToCommit);
-        } catch (error) {
-          console.error("Failed to change binding:", error);
-          toast.error(
-            t("settings.general.shortcut.errors.set", {
-              error: String(error),
-            }),
-          );
-
-          // Reset to original binding on error
-          if (originalBinding) {
-            try {
-              await updateBinding(shortcutId, originalBinding);
-            } catch (resetError) {
-              console.error("Failed to reset binding:", resetError);
-              toast.error(t("settings.general.shortcut.errors.reset"));
-            }
-          }
-        }
-
-        // Stop recording
+        if (committingRef.current) return;
+        committingRef.current = true;
+        // Stop the backend capture before opening any confirmation dialog.
         if (unlistenRef.current) {
           unlistenRef.current();
           unlistenRef.current = null;
@@ -135,13 +105,25 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
         currentKeysRef.current = "";
         keyedShortcutRef.current = "";
         modifierOnlyShortcutRef.current = "";
-        setOriginalBinding("");
+
+        try {
+          await updateBinding(shortcutId, keysToCommit);
+        } catch (error) {
+          console.error("Failed to change binding:", error);
+          toast.error(
+            t("settings.general.shortcut.errors.set", {
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        }
+
+        committingRef.current = false;
       };
 
       const unlisten = await listen<HandyKeysEvent>(
         "handy-keys-event",
         async (event) => {
-          if (cleanup) return;
+          if (cleanup || committingRef.current) return;
 
           const { hotkey_string, is_key_down, key, modifiers } = event.payload;
 
@@ -192,14 +174,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
       // Stop backend recording on unmount to prevent orphaned recording loops
       commands.stopHandyKeysRecording().catch(console.error);
     };
-  }, [
-    isRecording,
-    shortcutId,
-    originalBinding,
-    updateBinding,
-    cancelRecording,
-    t,
-  ]);
+  }, [isRecording, shortcutId, updateBinding, cancelRecording, t]);
 
   // Handle click outside
   useEffect(() => {
@@ -220,10 +195,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
 
   // Start recording a new shortcut
   const startRecording = async () => {
-    if (isRecording) return;
-
-    // Store the original binding to restore if canceled
-    setOriginalBinding(bindings[shortcutId]?.current_binding || "");
+    if (isRecording || committingRef.current) return;
 
     // Start backend recording. The backend refuses while macOS Secure Input
     // is active (the recorder's listener would receive no key events and
@@ -327,7 +299,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
 
   const displayBinding = binding.current_binding.trim()
     ? formatKeyCombination(binding.current_binding, osType)
-    : (unboundLabel ?? "—");
+    : (unboundLabel ?? t("settings.general.shortcut.unbound"));
 
   const control = (
     <div className="flex items-center space-x-1">

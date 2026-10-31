@@ -104,7 +104,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
               ? t("settings.postProcessing.api.model.descriptionCustom")
               : t("settings.postProcessing.api.model.descriptionDefault")
           }
-          descriptionMode="tooltip"
+          descriptionMode="inline"
           layout="stacked"
           grouped={true}
         >

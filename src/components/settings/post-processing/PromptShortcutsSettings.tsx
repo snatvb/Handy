@@ -22,6 +22,14 @@ const PromptShortcutRow: React.FC<{ prompt: LLMPrompt }> = ({ prompt }) => {
   const isAppleProvider = effectiveProviderId === APPLE_PROVIDER_ID;
   const globalModel =
     getSetting("post_process_models")?.[effectiveProviderId] ?? "";
+  const defaultModelLabel = t(
+    "settings.postProcessing.shortcuts.useGlobalModel",
+    {
+      model:
+        globalModel.trim() ||
+        t("settings.postProcessing.shortcuts.noModelConfigured"),
+    },
+  );
 
   const fetchModels = useCallback(async () => {
     if (isAppleProvider) {
@@ -59,7 +67,7 @@ const PromptShortcutRow: React.FC<{ prompt: LLMPrompt }> = ({ prompt }) => {
 
   const modelOptions = useMemo<ModelOption[]>(() => {
     const seen = new Set<string>();
-    const options: ModelOption[] = [];
+    const options: ModelOption[] = [{ value: "", label: defaultModelLabel }];
     const upsert = (value: string | null | undefined) => {
       const trimmed = value?.trim();
       if (!trimmed || seen.has(trimmed)) return;
@@ -71,8 +79,9 @@ const PromptShortcutRow: React.FC<{ prompt: LLMPrompt }> = ({ prompt }) => {
     }
     // The current override must stay selectable even when not in the list
     upsert(prompt.model ?? undefined);
+    upsert(globalModel);
     return options;
-  }, [fetchedModels, prompt.model]);
+  }, [fetchedModels, prompt.model, globalModel, defaultModelLabel]);
 
   return (
     <SettingContainer
@@ -88,11 +97,7 @@ const PromptShortcutRow: React.FC<{ prompt: LLMPrompt }> = ({ prompt }) => {
             value={prompt.model ?? ""}
             options={modelOptions}
             isLoading={isFetchingModels}
-            placeholder={t("settings.postProcessing.shortcuts.useGlobalModel", {
-              model:
-                globalModel.trim() ||
-                t("settings.postProcessing.shortcuts.noModelConfigured"),
-            })}
+            placeholder={defaultModelLabel}
             onSelect={(value) => void handleModelSelect(value)}
             onCreate={(value) => void handleModelSelect(value)}
             onBlur={() => {}}

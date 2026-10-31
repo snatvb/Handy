@@ -13,6 +13,14 @@ async changeBinding(id: string, binding: string) : Promise<Result<BindingRespons
     else return { status: "error", error: e  as any };
 }
 },
+async reassignBinding(id: string, binding: string, confirmedConflicts: ShortcutBinding[]) : Promise<Result<BindingResponse, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reassign_binding", { id, binding, confirmedConflicts }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async resetBinding(id: string) : Promise<Result<BindingResponse, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("reset_binding", { id }) };
@@ -1045,7 +1053,7 @@ overlay_style?: OverlayStyle }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
-export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
+export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null; conflicting_bindings: ShortcutBinding[]; cleared_bindings: ShortcutBinding[] }
 /**
  * Script applied to Mandarin and Cantonese output. Other languages are never
  * converted.

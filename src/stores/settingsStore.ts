@@ -1,8 +1,11 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { listen } from "@tauri-apps/api/event";
+import i18n from "i18next";
 import type {
   AppSettings as Settings,
+  BindingResponse,
+  ShortcutBinding,
   AudioDevice,
   ChineseScript,
   CustomWord,
@@ -14,11 +17,26 @@ import type {
 import { commands } from "@/bindings";
 import { toast } from "sonner";
 
+interface BindingConflict {
+  id: string;
+  binding: string;
+  conflicts: ShortcutBinding[];
+}
+
+const showBindingError = (error: unknown) => {
+  toast.error(
+    i18n.t("settings.general.shortcut.errors.set", {
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
+};
+
 interface SettingsStore {
   settings: Settings | null;
   defaultSettings: Settings | null;
   isLoading: boolean;
   isUpdating: Record<string, boolean>;
+  bindingConflict: BindingConflict | null;
   audioDevices: AudioDevice[];
   outputDevices: AudioDevice[];
   customSounds: { start: boolean; stop: boolean };
@@ -40,6 +58,8 @@ interface SettingsStore {
   refreshOutputDevices: () => Promise<void>;
   updateBinding: (id: string, binding: string) => Promise<void>;
   resetBinding: (id: string) => Promise<void>;
+  confirmBindingConflict: () => Promise<void>;
+  dismissBindingConflict: () => void;
   getSetting: <K extends keyof Settings>(key: K) => Settings[K] | undefined;
   isUpdatingKey: (key: string) => boolean;
   playTestSound: (soundType: "start" | "stop") => Promise<void>;
@@ -63,6 +83,11 @@ interface SettingsStore {
   setPostProcessModelOptions: (providerId: string, models: string[]) => void;
 
   // Internal state setters
+  handleBindingResponse: (
+    id: string,
+    binding: string,
+    response: BindingResponse,
+  ) => void;
   setSettings: (settings: Settings | null) => void;
   setDefaultSettings: (defaultSettings: Settings | null) => void;
   setLoading: (loading: boolean) => void;
@@ -211,6 +236,7 @@ export const useSettingsStore = create<SettingsStore>()(
     defaultSettings: null,
     isLoading: true,
     isUpdating: {},
+    bindingConflict: null,
     audioDevices: [],
     outputDevices: [],
     customSounds: { start: false, stop: false },
@@ -361,84 +387,109 @@ export const useSettingsStore = create<SettingsStore>()(
       }
     },
 
-    // Update a specific binding
-    updateBinding: async (id, binding) => {
-      const { settings, setUpdating } = get();
-      const updateKey = `binding_${id}`;
-      const originalBinding = settings?.bindings?.[id]?.current_binding;
+    // Keep both saved bindings unchanged until the backend succeeds or the
+    // user confirms a conflict. Capture can end while the dialog is open.
+    handleBindingResponse: (id, binding, response) => {
+      if (!response.success) {
+        if (response.conflicting_bindings.length > 0) {
+          set({
+            bindingConflict: {
+              id,
+              binding,
+              conflicts: response.conflicting_bindings,
+            },
+          });
+          return;
+        }
+        throw new Error(response.error || "Failed to update binding");
+      }
 
-      setUpdating(updateKey, true);
+      set((state) => {
+        const bindings = { ...state.settings?.bindings };
+        for (const cleared of response.cleared_bindings) {
+          bindings[cleared.id] = cleared;
+        }
+        if (response.binding) {
+          bindings[id] = response.binding;
+        }
+        return {
+          settings: state.settings ? { ...state.settings, bindings } : null,
+          bindingConflict:
+            state.bindingConflict?.id === id ? null : state.bindingConflict,
+        };
+      });
+    },
+
+    updateBinding: async (id, binding) => {
+      const updateKey = `binding_${id}`;
+      if (get().isUpdatingKey(updateKey)) return;
+      get().setUpdating(updateKey, true);
 
       try {
-        // Optimistic update
-        set((state) => ({
-          settings: state.settings
-            ? {
-                ...state.settings,
-                bindings: {
-                  ...state.settings.bindings,
-                  [id]: {
-                    ...state.settings.bindings?.[id]!,
-                    current_binding: binding,
-                  },
-                },
-              }
-            : null,
-        }));
-
         const result = await commands.changeBinding(id, binding);
-
-        // Check if the command executed successfully
         if (result.status === "error") {
           throw new Error(result.error);
         }
-
-        // Check if the binding change was successful
-        if (!result.data.success) {
-          throw new Error(result.data.error || "Failed to update binding");
-        }
-      } catch (error) {
-        console.error(`Failed to update binding ${id}:`, error);
-
-        // Rollback on error
-        if (originalBinding && get().settings) {
-          set((state) => ({
-            settings: state.settings
-              ? {
-                  ...state.settings,
-                  bindings: {
-                    ...state.settings.bindings,
-                    [id]: {
-                      ...state.settings.bindings?.[id]!,
-                      current_binding: originalBinding,
-                    },
-                  },
-                }
-              : null,
-          }));
-        }
-
-        // Re-throw to let the caller know it failed
-        throw error;
+        get().handleBindingResponse(id, binding, result.data);
       } finally {
-        setUpdating(updateKey, false);
+        get().setUpdating(updateKey, false);
       }
     },
 
-    // Reset a specific binding
     resetBinding: async (id) => {
-      const { setUpdating, refreshSettings } = get();
+      const { settings, defaultSettings } = get();
+      const binding =
+        settings?.bindings?.[id]?.default_binding ??
+        defaultSettings?.bindings?.[id]?.default_binding ??
+        "";
       const updateKey = `binding_${id}`;
-
-      setUpdating(updateKey, true);
+      if (get().isUpdatingKey(updateKey)) return;
+      get().setUpdating(updateKey, true);
 
       try {
-        await commands.resetBinding(id);
-        await refreshSettings();
+        const result = await commands.resetBinding(id);
+        if (result.status === "error") {
+          throw new Error(result.error);
+        }
+        get().handleBindingResponse(id, binding, result.data);
       } catch (error) {
         console.error(`Failed to reset binding ${id}:`, error);
+        showBindingError(error);
       } finally {
-        setUpdating(updateKey, false);
+        get().setUpdating(updateKey, false);
+      }
+    },
+
+    confirmBindingConflict: async () => {
+      const pending = get().bindingConflict;
+      if (!pending) return;
+      const updateKey = `binding_${pending.id}`;
+      if (get().isUpdatingKey(updateKey)) return;
+      get().setUpdating(updateKey, true);
+
+      try {
+        const result = await commands.reassignBinding(
+          pending.id,
+          pending.binding,
+          pending.conflicts,
+        );
+        if (result.status === "error") {
+          throw new Error(result.error);
+        }
+        // A new/changed owner updates the dialog and needs fresh confirmation.
+        get().handleBindingResponse(pending.id, pending.binding, result.data);
+      } catch (error) {
+        console.error("Failed to reassign binding:", error);
+        showBindingError(error);
+      } finally {
+        get().setUpdating(updateKey, false);
+      }
+    },
+
+    dismissBindingConflict: () => {
+      const pending = get().bindingConflict;
+      if (pending && !get().isUpdatingKey(`binding_${pending.id}`)) {
+        set({ bindingConflict: null });
       }
     },
 

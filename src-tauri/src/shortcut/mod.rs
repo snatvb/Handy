@@ -9,6 +9,7 @@
 //! The active implementation is determined by the `keyboard_implementation`
 //! setting and can be changed at runtime.
 
+mod conflicts;
 mod handler;
 pub mod handy_keys;
 pub mod tauri_impl;
@@ -140,6 +141,10 @@ fn reconcile_cancel_shortcut(app: &AppHandle) {
             return;
         };
 
+        if cancel_binding.current_binding.trim().is_empty() {
+            return;
+        }
+
         if requested {
             match register_shortcut(app, cancel_binding) {
                 Ok(()) => *registered = true,
@@ -181,6 +186,20 @@ pub struct BindingResponse {
     success: bool,
     binding: Option<ShortcutBinding>,
     error: Option<String>,
+    conflicting_bindings: Vec<ShortcutBinding>,
+    cleared_bindings: Vec<ShortcutBinding>,
+}
+
+impl BindingResponse {
+    fn failure(error: String) -> Self {
+        Self {
+            success: false,
+            binding: None,
+            error: Some(error),
+            conflicting_bindings: Vec::new(),
+            cleared_bindings: Vec::new(),
+        }
+    }
 }
 
 #[tauri::command]
@@ -190,22 +209,51 @@ pub fn change_binding(
     id: String,
     binding: String,
 ) -> Result<BindingResponse, String> {
-    let is_prompt_binding = prompt_id_from_binding_id(&id).is_some();
+    change_binding_inner(app, id, binding, &[])
+}
 
-    // Reject empty bindings — every shortcut should have a value. Prompt
-    // bindings are the exception: an empty value unbinds the prompt's hotkey.
-    if binding.trim().is_empty() && !is_prompt_binding {
+/// Transfer a shortcut only from the owners and binding values shown in the
+/// confirmation dialog. Newly introduced conflicts require another confirmation.
+#[tauri::command]
+#[specta::specta]
+pub fn reassign_binding(
+    app: AppHandle,
+    id: String,
+    binding: String,
+    confirmed_conflicts: Vec<ShortcutBinding>,
+) -> Result<BindingResponse, String> {
+    change_binding_inner(app, id, binding, &confirmed_conflicts)
+}
+
+fn binding_is_active(
+    settings: &settings::AppSettings,
+    binding: &ShortcutBinding,
+    cancel_active: bool,
+) -> bool {
+    !binding.current_binding.trim().is_empty()
+        && if binding.id == "cancel" {
+            cancel_active
+        } else {
+            !is_post_process_binding(&binding.id) || settings.post_process_enabled
+        }
+}
+
+fn change_binding_inner(
+    app: AppHandle,
+    id: String,
+    binding: String,
+    confirmed_conflicts: &[ShortcutBinding],
+) -> Result<BindingResponse, String> {
+    // Directly clearing a global shortcut is still rejected. A confirmed
+    // transfer can release its previous owner while keeping the saved entry.
+    if binding.trim().is_empty() && prompt_id_from_binding_id(&id).is_none() {
         return Err("Binding cannot be empty".to_string());
     }
 
     let mut settings = settings::get_settings(&app);
-
-    // Get the binding to modify, or create it from defaults if it doesn't exist
     let binding_to_modify = match settings.bindings.get(&id) {
         Some(binding) => binding.clone(),
         None => {
-            // Per-prompt bindings live in the store only (not in defaults);
-            // create one on demand from its prompt.
             if let Some(prompt_id) = prompt_id_from_binding_id(&id) {
                 match settings.post_process_prompt(prompt_id) {
                     Some(prompt) => ShortcutBinding {
@@ -217,135 +265,120 @@ pub fn change_binding(
                         current_binding: String::new(),
                     },
                     None => {
-                        return Ok(BindingResponse {
-                            success: false,
-                            binding: None,
-                            error: Some(format!("Prompt '{}' not found", prompt_id)),
-                        });
+                        return Ok(BindingResponse::failure(format!(
+                            "Prompt '{}' not found",
+                            prompt_id
+                        )));
                     }
                 }
             } else {
-                // Try to get the default binding for this id
-                let default_settings = settings::get_default_settings();
-                match default_settings.bindings.get(&id) {
-                    Some(default_binding) => {
-                        warn!(
-                            "Binding '{}' not found in settings, creating from defaults",
-                            id
-                        );
-                        default_binding.clone()
-                    }
+                match settings::get_default_settings().bindings.get(&id) {
+                    Some(default_binding) => default_binding.clone(),
                     None => {
-                        let error_msg = format!("Binding with id '{}' not found in defaults", id);
-                        warn!("change_binding error: {}", error_msg);
-                        return Ok(BindingResponse {
-                            success: false,
-                            binding: None,
-                            error: Some(error_msg),
-                        });
+                        return Ok(BindingResponse::failure(format!(
+                            "Binding with id '{}' not found in defaults",
+                            id
+                        )));
                     }
                 }
             }
         }
     };
 
-    // If this is the cancel binding, just update the settings and return
-    // It's managed dynamically, so we don't register/unregister here
-    if id == "cancel" {
-        if let Some(mut b) = settings.bindings.get(&id).cloned() {
-            b.current_binding = binding;
-            settings.bindings.insert(id.clone(), b.clone());
-            settings::write_settings(&app, settings);
-            crate::secure_input::reconcile_fallback(&app);
-            return Ok(BindingResponse {
-                success: true,
-                binding: Some(b.clone()),
-                error: None,
-            });
-        }
+    if !binding.trim().is_empty() {
+        validate_shortcut_for_implementation(&binding, settings.keyboard_implementation)?;
     }
+    let change = match conflicts::prepare_binding_change(
+        &settings,
+        binding_to_modify.clone(),
+        &binding,
+        confirmed_conflicts,
+    ) {
+        Ok(change) => change,
+        Err(conflicts) => {
+            let mut response =
+                BindingResponse::failure(format!("Shortcut '{}' is already assigned", binding));
+            response.conflicting_bindings = conflicts;
+            return Ok(response);
+        }
+    };
 
-    // Unbinding a prompt binding: unregister its hotkey and persist an empty
-    // binding. Only reachable for prompt bindings (rejected above otherwise).
-    if binding.trim().is_empty() {
-        if !binding_to_modify.current_binding.trim().is_empty() {
-            if let Err(e) = unregister_shortcut(&app, binding_to_modify.clone()) {
-                debug!(
-                    "change_binding unbind: could not unregister '{}': {}",
-                    id, e
-                );
+    let touches_cancel = id == "cancel"
+        || change
+            .conflicts
+            .iter()
+            .any(|binding| binding.id == "cancel");
+    // Serialize cancel transfers with the recording lifecycle so clearing or
+    // replacing its key cannot leave the old dynamic registration behind.
+    #[cfg(not(target_os = "linux"))]
+    let mut cancel_registered =
+        touches_cancel.then(|| CANCEL_REGISTERED.lock().unwrap_or_else(|e| e.into_inner()));
+    #[cfg(not(target_os = "linux"))]
+    let cancel_was_registered = cancel_registered.as_ref().is_some_and(|guard| **guard);
+    #[cfg(target_os = "linux")]
+    let cancel_was_registered = false;
+    let cancel_requested =
+        cfg!(not(target_os = "linux")) && CANCEL_REQUESTED.load(Ordering::SeqCst);
+
+    let mut removed = Vec::new();
+    for previous in std::iter::once(&binding_to_modify).chain(change.conflicts.iter()) {
+        if !binding_is_active(&settings, previous, cancel_was_registered) {
+            continue;
+        }
+        if let Err(error) = unregister_shortcut(&app, previous.clone()) {
+            for binding in &removed {
+                restore_registration(&app, binding);
             }
+            return Ok(BindingResponse::failure(format!(
+                "Failed to unregister shortcut: {}",
+                error
+            )));
         }
-        let mut unbound = binding_to_modify.clone();
-        unbound.current_binding = String::new();
-        settings.bindings.insert(id.clone(), unbound.clone());
-        settings::write_settings(&app, settings);
-        crate::secure_input::reconcile_fallback(&app);
-        return Ok(BindingResponse {
-            success: true,
-            binding: Some(unbound),
-            error: None,
-        });
+        removed.push(previous.clone());
     }
 
-    // Post-processing shortcuts only fire while the feature is enabled; while
-    // disabled we persist the binding without registering it.
-    let should_register = !is_post_process_binding(&id) || settings.post_process_enabled;
-
-    // Unregister the existing binding
-    if should_register && !binding_to_modify.current_binding.trim().is_empty() {
-        if let Err(e) = unregister_shortcut(&app, binding_to_modify.clone()) {
-            let error_msg = format!("Failed to unregister shortcut: {}", e);
-            error!("change_binding error: {}", error_msg);
-        }
-    }
-
-    // Validate the new shortcut for the current keyboard implementation
-    if let Err(e) = validate_shortcut_for_implementation(&binding, settings.keyboard_implementation)
-    {
-        warn!("change_binding validation error: {}", e);
-        if should_register {
-            restore_registration(&app, &binding_to_modify);
-        }
-        return Err(e);
-    }
-
-    // Create an updated binding
-    let mut updated_binding = binding_to_modify.clone();
-    updated_binding.current_binding = binding;
-
-    // Register the new binding
+    let should_register = binding_is_active(&settings, &change.binding, cancel_requested);
     if should_register {
-        if let Err(e) = register_shortcut(&app, updated_binding.clone()) {
-            let error_msg = format!("Failed to register shortcut: {}", e);
-            error!("change_binding error: {}", error_msg);
-            restore_registration(&app, &binding_to_modify);
-            return Ok(BindingResponse {
-                success: false,
-                binding: None,
-                error: Some(error_msg),
-            });
+        if let Err(error) = register_shortcut(&app, change.binding.clone()) {
+            // Settings are still untouched. Restore every removed owner.
+            for binding in &removed {
+                restore_registration(&app, binding);
+            }
+            return Ok(BindingResponse::failure(format!(
+                "Failed to register shortcut: {}",
+                error
+            )));
         }
     }
 
-    // Update the binding in the settings
-    settings.bindings.insert(id, updated_binding.clone());
-
-    // Save the settings and synchronize any active Secure Input shadows.
+    let cleared_bindings = change.apply(&mut settings);
     settings::write_settings(&app, settings);
-    crate::secure_input::reconcile_fallback(&app);
+    #[cfg(not(target_os = "linux"))]
+    if let Some(registered) = cancel_registered.as_mut() {
+        **registered = id == "cancel" && should_register;
+    }
+    #[cfg(not(target_os = "linux"))]
+    drop(cancel_registered);
 
-    // Return the updated binding
+    crate::secure_input::reconcile_fallback(&app);
+    if touches_cancel {
+        schedule_cancel_reconcile(&app);
+    }
+
     Ok(BindingResponse {
         success: true,
-        binding: Some(updated_binding),
+        binding: Some(change.binding),
         error: None,
+        conflicting_bindings: Vec::new(),
+        cleared_bindings,
     })
 }
 
-/// Best-effort re-register of the previous binding after a failed change,
-/// so a failure leaves the user's shortcut working exactly as before.
+/// Best-effort restoration after a failed registration, before persisting any change.
 fn restore_registration(app: &AppHandle, binding: &ShortcutBinding) {
+    if binding.current_binding.trim().is_empty() {
+        return;
+    }
     if let Err(e) = register_shortcut(app, binding.clone()) {
         error!(
             "Failed to restore previous binding '{}' ({}): {}",
@@ -597,6 +630,12 @@ fn register_all_shortcuts_for_implementation(
             .get(id)
             .cloned()
             .unwrap_or_else(|| default_binding.clone());
+
+        // A confirmed transfer can leave a global action intentionally unbound.
+        // Switching backends must not reset it to a now-conflicting default.
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
 
         // Validate the shortcut for the target implementation
         if let Err(e) =
