@@ -6,9 +6,8 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useOsType } from "../../hooks/useOsType";
 import { formatKeyCombination } from "../../lib/utils/keyboard";
 
-export const BindingConflictDialog: React.FC<{ shortcutId: string }> = ({
-  shortcutId,
-}) => {
+/** Confirms the pending binding conflict, whichever capture produced it. */
+export const BindingConflictDialog: React.FC = () => {
   const { t } = useTranslation();
   const osType = useOsType();
   const {
@@ -18,8 +17,9 @@ export const BindingConflictDialog: React.FC<{ shortcutId: string }> = ({
     confirmBindingConflict,
     dismissBindingConflict,
   } = useSettingsStore();
-  const pending = bindingConflict?.id === shortcutId ? bindingConflict : null;
+  const pending = bindingConflict;
   if (!pending) return null;
+  const shortcutId = pending.id;
 
   const isSaving = isUpdatingKey(`binding_${shortcutId}`);
   const bindingName = (id: string, fallback: string) =>
