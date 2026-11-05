@@ -304,6 +304,9 @@ pub enum RecordingRetentionPeriod {
 pub enum KeyboardImplementation {
     Tauri,
     HandyKeys,
+    /// No built-in global shortcuts; trigger Handy via CLI flags or signals
+    /// (e.g. from a Wayland compositor keybinding).
+    None,
 }
 
 impl Default for KeyboardImplementation {
@@ -574,6 +577,11 @@ pub struct AppSettings {
     pub experimental_enabled: bool,
     #[serde(default)]
     pub lazy_stream_close: bool,
+    /// Experimental, macOS only: move a Bluetooth headset (AirPods) to this
+    /// Mac while recording, so its microphone does not return silence while
+    /// another Apple device is playing through it.
+    #[serde(default)]
+    pub airpods_mode: bool,
     #[serde(default)]
     pub keyboard_implementation: KeyboardImplementation,
     #[serde(default = "default_show_tray_icon")]
@@ -1071,7 +1079,7 @@ pub fn get_default_settings() -> AppSettings {
     #[cfg(target_os = "macos")]
     let default_shortcut = "option+space";
     #[cfg(target_os = "linux")]
-    let default_shortcut = "ctrl+space";
+    let default_shortcut = "ctrl+alt+space";
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     let default_shortcut = "alt+space";
 
@@ -1145,6 +1153,7 @@ pub fn get_default_settings() -> AppSettings {
         theme: default_theme(),
         experimental_enabled: false,
         lazy_stream_close: false,
+        airpods_mode: false,
         keyboard_implementation: KeyboardImplementation::default(),
         show_tray_icon: default_show_tray_icon(),
         paste_delay_ms: default_paste_delay_ms(),
@@ -1950,6 +1959,20 @@ mod tests {
         assert_eq!(salvaged.paste_delay_ms, default_paste_delay_ms());
         assert_eq!(salvaged.sound_theme, default_sound_theme());
         assert_eq!(salvaged.custom_words, vec![CustomWord::new("handy")]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn default_shortcuts_do_not_conflict_with_ibus_input_method_switch() {
+        let defaults = get_default_settings();
+        assert_eq!(
+            defaults.bindings["transcribe"].current_binding,
+            "ctrl+alt+space"
+        );
+        // This fork uses per-prompt bindings, unassigned by default.
+        assert!(!defaults
+            .bindings
+            .contains_key("transcribe_with_post_process"));
     }
 
     #[test]

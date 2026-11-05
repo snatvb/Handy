@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import i18n from "i18next";
-import { toast } from "sonner";
+import { useNoticeStore } from "./noticeStore";
 import {
   commands,
   type AppSettings,
@@ -63,17 +63,19 @@ const originalCommands = {
   reassignBinding: commands.reassignBinding,
   resetBinding: commands.resetBinding,
 };
-const originalToastError = toast.error;
+const originalNotices = useNoticeStore.getState();
 const originalConsoleError = console.error;
 const messages: string[] = [];
 let reassignCalls = 0;
+const unsubscribeNotices = useNoticeStore.subscribe((state, previous) => {
+  if (state.local !== previous.local && state.local[0]) {
+    messages.push(state.local[0].title);
+  }
+});
 
 try {
   console.error = () => {};
-  toast.error = (message) => {
-    messages.push(String(message));
-    return 0;
-  };
+  useNoticeStore.setState({ local: [], toasts: [] });
   commands.changeBinding = async () => ({
     status: "ok",
     data: conflictResponse([owner]),
@@ -217,7 +219,8 @@ try {
   assert.equal(current(promptId), "");
 } finally {
   Object.assign(commands, originalCommands);
-  toast.error = originalToastError;
+  unsubscribeNotices();
+  useNoticeStore.setState(originalNotices);
   console.error = originalConsoleError;
 }
 

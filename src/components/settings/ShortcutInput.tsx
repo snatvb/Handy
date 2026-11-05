@@ -135,6 +135,9 @@ export const ShortcutInput: React.FC<ShortcutInputProps> = ({
         </div>
       )}
       <ResetButton
+        ariaLabel={t("common.resetSetting", {
+          setting: titleOverride ?? translatedName,
+        })}
         onClick={() => resetBinding(shortcutId)}
         disabled={isUpdating(`binding_${shortcutId}`)}
       />

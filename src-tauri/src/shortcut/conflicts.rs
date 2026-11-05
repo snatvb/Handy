@@ -13,6 +13,7 @@ impl ParsedShortcut {
         match implementation {
             KeyboardImplementation::Tauri => raw.parse().ok().map(Self::Tauri),
             KeyboardImplementation::HandyKeys => raw.parse().ok().map(Self::HandyKeys),
+            KeyboardImplementation::None => None,
         }
     }
 
@@ -152,6 +153,17 @@ mod tests {
             })
             .collect();
         settings
+    }
+
+    #[test]
+    fn disabled_keyboard_backend_has_no_binding_conflicts() {
+        let settings = settings_with_bindings(
+            KeyboardImplementation::None,
+            &[("transcribe", "ctrl+space")],
+        );
+        assert!(
+            find_binding_conflicts(&settings, "post_process_prompt:a", "ctrl+space").is_empty()
+        );
     }
 
     #[test]

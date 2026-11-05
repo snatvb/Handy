@@ -1,9 +1,10 @@
 import React, { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pencil, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 import type { CustomWord } from "@/bindings";
+import { notify } from "@/stores/noticeStore";
 import { useSettings } from "../../hooks/useSettings";
+import { isComposingKeyEvent } from "../../lib/utils/keyboard";
 import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { SettingContainer } from "../ui/SettingContainer";
@@ -52,7 +53,9 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
       event: React.ClipboardEvent<HTMLInputElement>,
     ) => {
       const pasted = event.clipboardData.getData("text");
-      if (!/[\r\n]/.test(pasted)) return;
+      if (!/[\r\n]/.test(pasted)) {
+        return;
+      }
       event.preventDefault();
       const input = event.currentTarget;
       const start = input.selectionStart ?? input.value.length;
@@ -69,7 +72,7 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
       if (
         JSON.stringify(getSetting("custom_words")) !== JSON.stringify(words)
       ) {
-        toast.error(t("settings.advanced.customWords.saveFailed"));
+        notify({ title: t("settings.advanced.customWords.saveFailed") });
         return false;
       }
       return true;
@@ -77,7 +80,9 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
 
     const handleSaveWord = async (event: React.FormEvent) => {
       event.preventDefault();
-      if (!normalizedWord || tooLong || updating) return;
+      if (!normalizedWord || tooLong || updating) {
+        return;
+      }
 
       if (
         customWords.some(
@@ -86,11 +91,11 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
             entry.word.toLowerCase() === normalizedWord.toLowerCase(),
         )
       ) {
-        toast.error(
-          t("settings.advanced.customWords.duplicate", {
+        notify({
+          title: t("settings.advanced.customWords.duplicate", {
             word: normalizedWord,
           }),
-        );
+        });
         return;
       }
 
@@ -101,7 +106,9 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
           : customWords.map((word, index) =>
               index === editingIndex ? entry : word,
             );
-      if (await saveWords(words)) resetEditor();
+      if (await saveWords(words)) {
+        resetEditor();
+      }
     };
 
     const handleEditWord = (entry: CustomWord, index: number) => {
@@ -115,11 +122,14 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
         !(await saveWords(
           customWords.filter((_, index) => index !== indexToRemove),
         ))
-      )
+      ) {
         return;
-      if (editingIndex === indexToRemove) resetEditor();
-      else if (editingIndex !== null && indexToRemove < editingIndex)
+      }
+      if (editingIndex === indexToRemove) {
+        resetEditor();
+      } else if (editingIndex !== null && indexToRemove < editingIndex) {
         setEditingIndex(editingIndex - 1);
+      }
     };
 
     return (
@@ -130,7 +140,18 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
         grouped={grouped}
         layout="stacked"
       >
-        <form onSubmit={handleSaveWord} className="space-y-2">
+        <form
+          onSubmit={handleSaveWord}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" &&
+              isComposingKeyEvent(event.nativeEvent)
+            ) {
+              event.preventDefault();
+            }
+          }}
+          className="space-y-2"
+        >
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-0 flex-1 basis-[200px] space-y-1">
               <label

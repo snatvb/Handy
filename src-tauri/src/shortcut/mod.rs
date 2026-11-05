@@ -79,6 +79,9 @@ pub fn init_shortcuts(app: &AppHandle) {
                 tauri_impl::init_shortcuts(app);
             }
         }
+        KeyboardImplementation::None => {
+            info!("Built-in keyboard shortcuts disabled; use CLI flags or signals");
+        }
     }
 }
 
@@ -165,6 +168,7 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
     match settings.keyboard_implementation {
         KeyboardImplementation::Tauri => tauri_impl::register_shortcut(app, binding),
         KeyboardImplementation::HandyKeys => handy_keys::register_shortcut(app, binding),
+        KeyboardImplementation::None => Ok(()),
     }
 }
 
@@ -174,6 +178,7 @@ pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<
     match settings.keyboard_implementation {
         KeyboardImplementation::Tauri => tauri_impl::unregister_shortcut(app, binding),
         KeyboardImplementation::HandyKeys => handy_keys::unregister_shortcut(app, binding),
+        KeyboardImplementation::None => Ok(()),
     }
 }
 
@@ -549,6 +554,7 @@ pub fn get_keyboard_implementation(app: AppHandle) -> String {
     match settings.keyboard_implementation {
         KeyboardImplementation::Tauri => "tauri".to_string(),
         KeyboardImplementation::HandyKeys => "handy_keys".to_string(),
+        KeyboardImplementation::None => "none".to_string(),
     }
 }
 
@@ -564,6 +570,7 @@ fn validate_shortcut_for_implementation(
     match implementation {
         KeyboardImplementation::Tauri => tauri_impl::validate_shortcut(raw),
         KeyboardImplementation::HandyKeys => handy_keys::validate_shortcut(raw),
+        KeyboardImplementation::None => Ok(()),
     }
 }
 
@@ -572,6 +579,7 @@ fn parse_keyboard_implementation(s: &str) -> KeyboardImplementation {
     match s {
         "tauri" => KeyboardImplementation::Tauri,
         "handy_keys" => KeyboardImplementation::HandyKeys,
+        "none" => KeyboardImplementation::None,
         other => {
             warn!(
                 "Invalid keyboard implementation '{}', defaulting to tauri",
@@ -599,6 +607,7 @@ fn unregister_all_shortcuts(app: &AppHandle, implementation: KeyboardImplementat
         let result = match implementation {
             KeyboardImplementation::Tauri => tauri_impl::unregister_shortcut(app, binding),
             KeyboardImplementation::HandyKeys => handy_keys::unregister_shortcut(app, binding),
+            KeyboardImplementation::None => Ok(()),
         };
 
         if let Err(e) = result {
@@ -658,6 +667,7 @@ fn register_all_shortcuts_for_implementation(
         let result = match implementation {
             KeyboardImplementation::Tauri => tauri_impl::register_shortcut(app, binding),
             KeyboardImplementation::HandyKeys => handy_keys::register_shortcut(app, binding),
+            KeyboardImplementation::None => Ok(()),
         };
 
         if let Err(e) = result {
@@ -691,6 +701,7 @@ fn register_all_shortcuts_for_implementation(
         let result = match implementation {
             KeyboardImplementation::Tauri => tauri_impl::register_shortcut(app, binding),
             KeyboardImplementation::HandyKeys => handy_keys::register_shortcut(app, binding),
+            KeyboardImplementation::None => Ok(()),
         };
 
         if let Err(e) = result {
@@ -853,8 +864,18 @@ pub fn change_translate_to_english_setting(app: AppHandle, enabled: bool) -> Res
 #[specta::specta]
 pub fn change_selected_language_setting(app: AppHandle, language: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.selected_language = language;
+    settings.selected_language = language.clone();
     settings::write_settings(&app, settings);
+    tray::update_tray_menu(&app);
+
+    // The tray can change it too; keep the settings window in sync.
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "selected_language",
+            "value": language
+        }),
+    );
     Ok(())
 }
 
@@ -867,6 +888,7 @@ pub fn change_spoken_languages_setting(
     let mut settings = settings::get_settings(&app);
     settings.spoken_languages = languages;
     settings::write_settings(&app, settings);
+    tray::update_tray_menu(&app);
     Ok(())
 }
 
@@ -1090,6 +1112,7 @@ pub fn change_language_detection_setting(
     let mut settings = settings::get_settings(&app);
     settings.language_detection = mode;
     settings::write_settings(&app, settings);
+    tray::update_tray_menu(&app);
     Ok(())
 }
 
