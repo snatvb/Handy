@@ -1,275 +1,188 @@
-import React, { useId, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pencil, Trash2 } from "lucide-react";
+import { ArrowRight, Pencil, Plus, Replace, Trash2 } from "lucide-react";
 import type { CustomWord } from "@/bindings";
+import { hasDuplicateCustomWord } from "@/lib/utils/customWords";
 import { notify } from "@/stores/noticeStore";
 import { useSettings } from "../../hooks/useSettings";
-import { isComposingKeyEvent } from "../../lib/utils/keyboard";
-import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
-import { SettingContainer } from "../ui/SettingContainer";
+import { CustomWordEditor } from "./replacements/CustomWordEditor";
 
-interface CustomWordsProps {
-  descriptionMode?: "inline" | "tooltip";
-  grouped?: boolean;
+interface Editor {
+  index: number | null;
+  initial: CustomWord;
 }
 
-const normalizeCustomWord = (word: string) => word.replace(/\s+/g, " ").trim();
+export function CustomWords() {
+  const { t } = useTranslation();
+  const { getSetting, updateSetting, isUpdating } = useSettings();
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const focusTarget = useRef<number | null | undefined>(undefined);
+  const words = getSetting("custom_words") ?? [];
+  const updating = isUpdating("custom_words");
 
-export const CustomWords: React.FC<CustomWordsProps> = React.memo(
-  ({ descriptionMode = "tooltip", grouped = false }) => {
-    const { t } = useTranslation();
-    const { getSetting, updateSetting, isUpdating } = useSettings();
-    const formId = useId();
-    const [newWord, setNewWord] = useState("");
-    const [newAliases, setNewAliases] = useState("");
-    const [editingIndex, setEditingIndex] = useState<number | null>(null);
-    const customWords = getSetting("custom_words") || [];
-    const updating = isUpdating("custom_words");
-    const normalizedWord = normalizeCustomWord(newWord);
-    const aliases = Array.from(
-      new Map(
-        newAliases
-          .split(/[,\n]/)
-          .map(normalizeCustomWord)
-          .filter(
-            (alias) =>
-              alias && alias.toLowerCase() !== normalizedWord.toLowerCase(),
-          )
-          .map((alias) => [alias.toLowerCase(), alias]),
-      ).values(),
+  useLayoutEffect(() => {
+    if (editor || updating || focusTarget.current === undefined) {
+      return;
+    }
+    const selector =
+      focusTarget.current === null
+        ? "[data-add-replacement]"
+        : `[data-edit-index="${focusTarget.current}"]`;
+    sectionRef.current?.querySelector<HTMLButtonElement>(selector)?.focus();
+    focusTarget.current = undefined;
+  }, [editor, updating]);
+
+  const closeEditor = (index: number | null) => {
+    focusTarget.current = index;
+    setEditor(null);
+  };
+
+  const saveWords = async (next: CustomWord[]): Promise<boolean> => {
+    await updateSetting("custom_words", next);
+    return JSON.stringify(getSetting("custom_words")) === JSON.stringify(next);
+  };
+
+  const saveEntry = async (entry: CustomWord): Promise<string | null> => {
+    if (!editor) {
+      return null;
+    }
+    if (hasDuplicateCustomWord(words, entry.word, editor.index)) {
+      return t("settings.advanced.customWords.duplicate", { word: entry.word });
+    }
+    const next =
+      editor.index === null
+        ? [...words, entry]
+        : words.map((word, index) => (index === editor.index ? entry : word));
+    if (!(await saveWords(next))) {
+      return t("settings.advanced.customWords.saveFailed");
+    }
+    closeEditor(editor.index ?? words.length);
+    return null;
+  };
+
+  const renderEditor = () =>
+    editor && (
+      <CustomWordEditor
+        initial={editor.initial}
+        disabled={updating}
+        onSave={saveEntry}
+        onCancel={() => closeEditor(editor.index)}
+      />
     );
-    const tooLong = [normalizedWord, ...aliases].some(
-      (word) => Array.from(word).length > 50,
-    );
 
-    const resetEditor = () => {
-      setNewWord("");
-      setNewAliases("");
-      setEditingIndex(null);
-    };
-
-    const handlePasteAliases = (
-      event: React.ClipboardEvent<HTMLInputElement>,
-    ) => {
-      const pasted = event.clipboardData.getData("text");
-      if (!/[\r\n]/.test(pasted)) {
-        return;
-      }
-      event.preventDefault();
-      const input = event.currentTarget;
-      const start = input.selectionStart ?? input.value.length;
-      const end = input.selectionEnd ?? start;
-      setNewAliases(
-        input.value.slice(0, start) +
-          pasted.replace(/[\r\n]+/g, ", ") +
-          input.value.slice(end),
-      );
-    };
-
-    const saveWords = async (words: CustomWord[]) => {
-      await updateSetting("custom_words", words);
-      if (
-        JSON.stringify(getSetting("custom_words")) !== JSON.stringify(words)
-      ) {
-        notify({ title: t("settings.advanced.customWords.saveFailed") });
-        return false;
-      }
-      return true;
-    };
-
-    const handleSaveWord = async (event: React.FormEvent) => {
-      event.preventDefault();
-      if (!normalizedWord || tooLong || updating) {
-        return;
-      }
-
-      if (
-        customWords.some(
-          (entry, index) =>
-            index !== editingIndex &&
-            entry.word.toLowerCase() === normalizedWord.toLowerCase(),
-        )
-      ) {
-        notify({
-          title: t("settings.advanced.customWords.duplicate", {
-            word: normalizedWord,
-          }),
-        });
-        return;
-      }
-
-      const entry: CustomWord = { word: normalizedWord, aliases };
-      const words =
-        editingIndex === null
-          ? [...customWords, entry]
-          : customWords.map((word, index) =>
-              index === editingIndex ? entry : word,
-            );
-      if (await saveWords(words)) {
-        resetEditor();
-      }
-    };
-
-    const handleEditWord = (entry: CustomWord, index: number) => {
-      setEditingIndex(index);
-      setNewWord(entry.word);
-      setNewAliases(entry.aliases.join(", "));
-    };
-
-    const handleRemoveWord = async (indexToRemove: number) => {
-      if (
-        !(await saveWords(
-          customWords.filter((_, index) => index !== indexToRemove),
-        ))
-      ) {
-        return;
-      }
-      if (editingIndex === indexToRemove) {
-        resetEditor();
-      } else if (editingIndex !== null && indexToRemove < editingIndex) {
-        setEditingIndex(editingIndex - 1);
-      }
-    };
-
-    return (
-      <SettingContainer
-        title={t("settings.advanced.customWords.title")}
-        description={t("settings.advanced.customWords.dictionaryDescription")}
-        descriptionMode={descriptionMode}
-        grouped={grouped}
-        layout="stacked"
-      >
-        <form
-          onSubmit={handleSaveWord}
-          onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              isComposingKeyEvent(event.nativeEvent)
-            ) {
-              event.preventDefault();
-            }
-          }}
-          className="space-y-2"
-        >
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-0 flex-1 basis-[200px] space-y-1">
-              <label
-                htmlFor={formId + "-word"}
-                className="block text-xs font-medium"
-              >
-                {t("settings.advanced.customWords.wordLabel")}
-              </label>
-              <Input
-                id={formId + "-word"}
-                type="text"
-                className="w-full"
-                value={newWord}
-                onChange={(event) => setNewWord(event.target.value)}
-                placeholder={t("settings.advanced.customWords.placeholder")}
-                variant="compact"
-                disabled={updating}
-              />
-            </div>
-            <div className="min-w-0 flex-1 basis-[200px] space-y-1">
-              <label
-                htmlFor={formId + "-aliases"}
-                className="block text-xs font-medium"
-              >
-                {t("settings.advanced.customWords.aliasesLabel")}
-              </label>
-              <Input
-                id={formId + "-aliases"}
-                type="text"
-                className="w-full"
-                value={newAliases}
-                onChange={(event) => setNewAliases(event.target.value)}
-                onPaste={handlePasteAliases}
-                placeholder={t(
-                  "settings.advanced.customWords.aliasesPlaceholder",
-                )}
-                variant="compact"
-                disabled={updating}
-              />
-            </div>
-          </div>
-          <p className="text-xs text-mid-gray">
-            {t("settings.advanced.customWords.aliasesHelp")}
+  return (
+    <section ref={sectionRef} className="mx-auto w-full max-w-3xl space-y-5">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-2">
+          <h1 className="text-xl font-semibold">{t("replacements.title")}</h1>
+          <p className="text-sm text-mid-gray">
+            {t("replacements.description")}
           </p>
-          {tooLong && (
-            <p className="text-xs text-red-500" role="alert">
-              {t("settings.advanced.customWords.tooLong")}
-            </p>
-          )}
-          <div className="flex gap-2">
-            <Button
-              type="submit"
-              disabled={!normalizedWord || tooLong || updating}
-              variant="primary"
-              size="sm"
-            >
-              {t(
-                editingIndex === null
-                  ? "settings.advanced.customWords.add"
-                  : "settings.advanced.customWords.save",
-              )}
-            </Button>
-            {editingIndex !== null && (
-              <Button
-                type="button"
-                onClick={resetEditor}
-                disabled={updating}
-                variant="secondary"
-                size="sm"
-              >
-                {t("settings.advanced.customWords.cancel")}
-              </Button>
-            )}
-          </div>
-        </form>
-        {customWords.length > 0 && (
-          <div className="mt-3 divide-y divide-mid-gray/20">
-            {customWords.map((entry, index) => (
-              <div key={entry.word} className="flex items-center gap-2 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="break-words text-sm font-medium">
-                    {entry.word}
-                  </p>
-                  <p className="break-words text-xs text-mid-gray">
-                    {entry.aliases.length > 0
-                      ? entry.aliases.join(", ")
-                      : t("settings.advanced.customWords.noAliases")}
-                  </p>
+        </div>
+        <Button
+          type="button"
+          data-add-replacement
+          className="inline-flex items-center gap-2"
+          disabled={!!editor || updating}
+          onClick={() =>
+            setEditor({ index: null, initial: { word: "", aliases: [] } })
+          }
+        >
+          <Plus size={16} aria-hidden="true" />
+          {t("replacements.add")}
+        </Button>
+      </header>
+      {editor?.index === null && (
+        <div className="rounded-xl border border-logo-primary/50 bg-wash p-4">
+          {renderEditor()}
+        </div>
+      )}
+      {words.length === 0 && !editor && (
+        <div className="rounded-xl bg-wash px-6 py-10 text-center text-mid-gray">
+          <Replace size={28} className="mx-auto mb-3" aria-hidden="true" />
+          <p className="text-sm">{t("replacements.empty")}</p>
+        </div>
+      )}
+      <div className="space-y-3">
+        {words.map((entry, index) => (
+          <article
+            key={index}
+            className={`rounded-xl bg-wash p-4 ${editor?.index === index ? "ring-1 ring-logo-primary/50" : ""}`}
+          >
+            {editor?.index === index ? (
+              renderEditor()
+            ) : (
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    {entry.aliases.length > 0 ? (
+                      entry.aliases.map((alias) => (
+                        <span
+                          key={alias}
+                          className="max-w-full break-words rounded-md bg-background px-2 py-1 text-mid-gray"
+                        >
+                          {alias}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-mid-gray">
+                        {t("settings.advanced.customWords.noAliases")}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <ArrowRight
+                      size={18}
+                      className="mt-0.5 shrink-0 text-logo-primary rtl:rotate-180"
+                      aria-hidden="true"
+                    />
+                    <span className="break-words min-w-0 font-semibold">
+                      {entry.word}
+                    </span>
+                  </div>
                 </div>
-                <Button
-                  type="button"
-                  onClick={() => handleEditWord(entry, index)}
-                  disabled={updating}
-                  variant="ghost"
-                  size="sm"
-                  aria-label={t("settings.advanced.customWords.edit", {
-                    word: entry.word,
-                  })}
-                >
-                  <Pencil size={14} />
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => handleRemoveWord(index)}
-                  disabled={updating}
-                  variant="danger-ghost"
-                  size="sm"
-                  aria-label={t("settings.advanced.customWords.remove", {
-                    word: entry.word,
-                  })}
-                >
-                  <Trash2 size={14} />
-                </Button>
+                <div className="flex shrink-0 gap-1">
+                  <Button
+                    type="button"
+                    data-edit-index={index}
+                    variant="ghost"
+                    size="sm"
+                    disabled={!!editor || updating}
+                    aria-label={t("settings.advanced.customWords.edit", {
+                      word: entry.word,
+                    })}
+                    onClick={() => setEditor({ index, initial: entry })}
+                  >
+                    <Pencil size={16} aria-hidden="true" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="danger-ghost"
+                    size="sm"
+                    disabled={!!editor || updating}
+                    aria-label={t("settings.advanced.customWords.remove", {
+                      word: entry.word,
+                    })}
+                    onClick={async () => {
+                      if (
+                        !(await saveWords(
+                          words.filter((_, position) => position !== index),
+                        ))
+                      ) {
+                        notify({ title: t("replacements.deleteFailed") });
+                      }
+                    }}
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                  </Button>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
-      </SettingContainer>
-    );
-  },
-);
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}

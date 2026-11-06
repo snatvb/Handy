@@ -72,15 +72,16 @@ platform_for_asset() {
 
 release_notes() {
   cat <<NOTES
-Personal Handy build — upstream \$UPSTREAM_BASE plus fork features.
+Personal Handy build — upstream ${UPSTREAM_BASE} plus fork features.
 
 **Fork features**
+- Dedicated Replacements tab with inline editing, recognition-variant tags, and per-entry Save/Cancel.
 - Per-prompt post-processing shortcuts with provider and model overrides.
 - Shared preferred spellings and recognition variants (custom words), corrected locally before optional LLM post-processing.
 - Shortcut binding conflict detection and resolution.
 
 **Install**
-- Windows x64: run the \`${product}_\${version}_x64-setup.exe\` installer (normal or portable). Unsigned: Windows may show an unknown-publisher warning.
+- Windows x64: run the \`${product}_${version}_x64-setup.exe\` installer (normal or portable). Unsigned: Windows may show an unknown-publisher warning.
 - macOS (Apple Silicon): open the \`.dmg\` and drag Handy to Applications. The app is not notarized — on first launch right-click → Open, or run \`xattr -d com.apple.quarantine /Applications/Handy.app\`.
 
 In-app updates are served from this fork only; official upstream builds cannot replace these features.
@@ -145,7 +146,7 @@ for sig in "$staging"/*.sig; do
   latest_args+=(--sig "${key}=${sig}" --url "${key}=${base_url}/${asset// /.}")
 done
 
-UPSTREAM_BASE="$(git log --oneline --ancestry-path "${tag}"..upstream/main 2>/dev/null | tail -1 | cut -c1-7)"
+UPSTREAM_BASE="$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD)"
 export UPSTREAM_BASE
 notes_file="$(mktemp)"
 latest_json="$(mktemp -d)/latest.json"

@@ -1,4 +1,17 @@
 {
+  "replacements": {
+    "title": "Replacements",
+    "description": "Correct recurring recognition mistakes. Add the variants you hear and the text you want instead.",
+    "add": "Add replacement",
+    "empty": "No replacements yet. Add a name, term, or phrase Handy should spell your way.",
+    "editor": "Replacement editor",
+    "removeVariant": "Remove variant {{variant}}",
+    "variantPlaceholder": "Add a recognition variant",
+    "addVariant": "Add variant",
+    "variantHelp": "Press Enter or comma to add a variant. You can paste a list. Variants are optional.",
+    "replaceWith": "Replace with",
+    "deleteFailed": "Could not remove the replacement. Try again."
+  },
   "tray": {
     "settings": "Paramètres...",
     "checkUpdates": "Rechercher des mises à jour...",
