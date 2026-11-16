@@ -42,6 +42,8 @@ use crate::settings::{self, get_settings, ShortcutBinding};
 
 use super::handler::handle_shortcut_event;
 
+mod recording;
+
 /// Commands that can be sent to the hotkey manager thread
 enum ManagerCommand {
     Register {
@@ -262,7 +264,7 @@ impl HandyKeysState {
         }
 
         // Create a new keyboard listener for recording
-        let listener = KeyboardListener::new()
+        let listener = recording::new_listener()
             .map_err(|e| format!("Failed to create keyboard listener: {}", e))?;
 
         {
